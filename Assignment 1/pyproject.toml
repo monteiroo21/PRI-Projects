@@ -70,8 +70,9 @@ select = [
 [tool.pyright]
 include = ["src"]
 exclude = ["**/__pycache__"]
-strict = ["**"]
-reportMissingImports = true
-reportMissingTypeStubs = false
+typeCheckingMode = "strict"
+reportImportCycles = false
+reportUnnecessaryCast = true
+reportUnnecessaryTypeIgnoreComment = true
 pythonVersion = "3.13"
 pythonPlatform = "All"
