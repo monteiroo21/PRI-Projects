@@ -1,0 +1,427 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sapien Search Engine</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            color: #333;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 2rem;
+        }
+
+        .header {
+            text-align: center;
+            margin-bottom: 3rem;
+        }
+
+        .header h1 {
+            color: white;
+            font-size: 3rem;
+            font-weight: 700;
+            margin-bottom: 0.5rem;
+            text-shadow: 2px 2px 4px rgba(0,0,0,0.3);
+        }
+
+        .header p {
+            color: rgba(255, 255, 255, 0.9);
+            font-size: 1.2rem;
+        }
+
+        .search-container {
+            background: white;
+            border-radius: 15px;
+            padding: 2rem;
+            box-shadow: 0 20px 40px rgba(0,0,0,0.1);
+            margin-bottom: 2rem;
+        }
+
+        .search-form {
+            display: flex;
+            flex-direction: column;
+            gap: 1rem;
+        }
+
+        .input-group {
+            display: flex;
+            gap: 1rem;
+            flex-wrap: wrap;
+        }
+
+        .search-input {
+            flex: 1;
+            min-width: 300px;
+            padding: 1rem;
+            border: 2px solid #e0e0e0;
+            border-radius: 10px;
+            font-size: 1rem;
+            transition: border-color 0.3s ease;
+        }
+
+        .search-input:focus {
+            outline: none;
+            border-color: #667eea;
+            box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+        }
+
+        .num-results {
+            padding: 1rem;
+            border: 2px solid #e0e0e0;
+            border-radius: 10px;
+            font-size: 1rem;
+            width: 150px;
+        }
+
+        .search-buttons {
+            display: flex;
+            gap: 1rem;
+            flex-wrap: wrap;
+        }
+
+        .btn {
+            padding: 1rem 2rem;
+            border: none;
+            border-radius: 10px;
+            font-size: 1rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+
+        .btn-primary {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+        }
+
+        .btn-secondary {
+            background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
+            color: white;
+        }
+
+        .btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 20px rgba(0,0,0,0.2);
+        }
+
+        .btn:active {
+            transform: translateY(0);
+        }
+
+        .btn:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        .results-container {
+            background: white;
+            border-radius: 15px;
+            padding: 2rem;
+            box-shadow: 0 20px 40px rgba(0,0,0,0.1);
+            display: none;
+        }
+
+        .results-header {
+            margin-bottom: 1.5rem;
+            padding-bottom: 1rem;
+            border-bottom: 2px solid #f0f0f0;
+        }
+
+        .results-header h2 {
+            color: #333;
+            margin-bottom: 0.5rem;
+        }
+
+        .results-count {
+            color: #666;
+            font-size: 0.9rem;
+        }
+
+        .result-item {
+            padding: 1.5rem;
+            margin-bottom: 1rem;
+            border: 1px solid #e0e0e0;
+            border-radius: 10px;
+            transition: all 0.3s ease;
+        }
+
+        .result-item:hover {
+            border-color: #667eea;
+            box-shadow: 0 5px 15px rgba(102, 126, 234, 0.1);
+            transform: translateY(-2px);
+        }
+
+        .result-title {
+            font-size: 1.2rem;
+            font-weight: 600;
+            color: #333;
+            margin-bottom: 0.5rem;
+        }
+
+        .result-id {
+            font-size: 0.8rem;
+            color: #999;
+            margin-bottom: 0.5rem;
+        }
+
+        .result-content {
+            color: #666;
+            line-height: 1.6;
+        }
+
+        .loading {
+            text-align: center;
+            padding: 2rem;
+            color: #666;
+        }
+
+        .loading::after {
+            content: '...';
+            animation: dots 2s infinite;
+        }
+
+        @keyframes dots {
+            0%, 20% { content: ''; }
+            40% { content: '.'; }
+            60% { content: '..'; }
+            80%, 100% { content: '...'; }
+        }
+
+        .error {
+            background: #fee;
+            color: #c33;
+            padding: 1rem;
+            border-radius: 10px;
+            border: 1px solid #fcc;
+            margin: 1rem 0;
+        }
+
+        .no-results {
+            text-align: center;
+            padding: 3rem;
+            color: #666;
+        }
+
+        .no-results h3 {
+            margin-bottom: 1rem;
+            color: #999;
+        }
+
+        @media (max-width: 768px) {
+            .container {
+                padding: 1rem;
+            }
+
+            .header h1 {
+                font-size: 2rem;
+            }
+
+            .input-group {
+                flex-direction: column;
+            }
+
+            .search-input {
+                min-width: auto;
+            }
+
+            .search-buttons {
+                flex-direction: column;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🧠 Sapien</h1>
+            <p>Search Engine (Generated by Sonnet-4)</p>
+        </div>
+
+        <div class="search-container">
+            <form class="search-form" id="searchForm">
+                <div class="input-group">
+                    <input
+                        type="text"
+                        class="search-input"
+                        id="queryInput"
+                        placeholder="Enter your search query..."
+                        required
+                    >
+                    <input
+                        type="number"
+                        class="num-results"
+                        id="numResultsInput"
+                        placeholder="Results"
+                        min="1"
+                        max="100"
+                        value="10"
+                    >
+                </div>
+                <div class="search-buttons">
+                    <button type="submit" class="btn btn-primary" id="searchBtn">
+                        🔍 Search
+                    </button>
+                    <button type="button" class="btn btn-secondary" id="searchLikeBtn">
+                        ✨ Search Similar
+                    </button>
+                </div>
+            </form>
+        </div>
+
+        <div class="results-container" id="resultsContainer">
+            <div class="results-header">
+                <h2>Search Results</h2>
+                <div class="results-count" id="resultsCount"></div>
+            </div>
+            <div id="resultsContent"></div>
+        </div>
+    </div>
+
+    <script>
+        const API_BASE_URL = '/api/v1';
+
+        const searchForm = document.getElementById('searchForm');
+        const queryInput = document.getElementById('queryInput');
+        const numResultsInput = document.getElementById('numResultsInput');
+        const searchBtn = document.getElementById('searchBtn');
+        const searchLikeBtn = document.getElementById('searchLikeBtn');
+        const resultsContainer = document.getElementById('resultsContainer');
+        const resultsCount = document.getElementById('resultsCount');
+        const resultsContent = document.getElementById('resultsContent');
+
+        // Handle search form submission
+        searchForm.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            await performSearch();
+        });
+
+        // Handle search similar button
+        searchLikeBtn.addEventListener('click', async () => {
+            const docId = parseInt(queryInput.value);
+            if (isNaN(docId)) {
+                showError('Please enter a valid document ID for similarity search');
+                return;
+            }
+            await performSimilarSearch(docId);
+        });
+
+        async function performSearch() {
+            const query = queryInput.value.trim();
+            const numResults = parseInt(numResultsInput.value) || 10;
+
+            if (!query) {
+                showError('Please enter a search query');
+                return;
+            }
+
+            showLoading();
+
+            try {
+                const response = await fetch(`${API_BASE_URL}/search?query=${encodeURIComponent(query)}&num_results=${numResults}`);
+
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                }
+
+                const data = await response.json();
+                displayResults(data.results, `Search results for "${query}"`);
+            } catch (error) {
+                showError(`Search failed: ${error.message}`);
+            }
+        }
+
+        async function performSimilarSearch(docId) {
+            const numResults = parseInt(numResultsInput.value) || 10;
+
+            showLoading();
+
+            try {
+                const response = await fetch(`${API_BASE_URL}/search_like?doc_id=${docId}&num_results=${numResults}`);
+
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                }
+
+                const data = await response.json();
+                displayResults(data.results, `Documents similar to ID ${docId}`);
+            } catch (error) {
+                showError(`Similarity search failed: ${error.message}`);
+            }
+        }
+
+        function showLoading() {
+            resultsContainer.style.display = 'block';
+            resultsContent.innerHTML = '<div class="loading">Searching</div>';
+            resultsCount.textContent = '';
+            setButtonsEnabled(false);
+        }
+
+        function displayResults(results, title) {
+            resultsContainer.style.display = 'block';
+            resultsCount.textContent = `Found ${results.length} results`;
+
+            if (results.length === 0) {
+                resultsContent.innerHTML = `
+                    <div class="no-results">
+                        <h3>No results found</h3>
+                        <p>Try adjusting your search terms or check your spelling.</p>
+                    </div>
+                `;
+            } else {
+                resultsContent.innerHTML = results.map(result => `
+                    <div class="result-item">
+                        <div class="result-title">${escapeHtml(result.title)}</div>
+                        <div class="result-id">ID: ${result.id}</div>
+                        <div class="result-content">${escapeHtml(result.content)}</div>
+                    </div>
+                `).join('');
+            }
+
+            setButtonsEnabled(true);
+        }
+
+        function showError(message) {
+            resultsContainer.style.display = 'block';
+            resultsContent.innerHTML = `<div class="error">${escapeHtml(message)}</div>`;
+            resultsCount.textContent = '';
+            setButtonsEnabled(true);
+        }
+
+        function setButtonsEnabled(enabled) {
+            searchBtn.disabled = !enabled;
+            searchLikeBtn.disabled = !enabled;
+        }
+
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+
+        // Add some sample interactions on page load
+        document.addEventListener('DOMContentLoaded', () => {
+            // Focus on the search input
+            queryInput.focus();
+
+            // Add placeholder suggestion
+            queryInput.placeholder = "Try searching for 'machine learning', 'python', or enter a document ID...";
+        });
+    </script>
+</body>
+</html>
