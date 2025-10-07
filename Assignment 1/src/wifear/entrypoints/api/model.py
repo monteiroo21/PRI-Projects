@@ -1,6 +1,6 @@
 from pydantic import BaseModel
 
-from sapien.core.model import Document
+from wifear.core.model import Document
 
 
 class SearchRequest(BaseModel):

@@ -4,12 +4,12 @@ This module is used only by an external ASGI application server like `uvicorn` t
 service, including any setup like logging etc. that needs to be completed before the service is
 ready to accept requests.
 
-    `uvicorn sapien.entrypoints.asgi:app --reload`
+    `uvicorn wifear.entrypoints.asgi:app --reload`
 
 """
 
-from sapien.core.logging import setup_logging
-from sapien.entrypoints.api.app import app
+from wifear.core.logging import setup_logging
+from wifear.entrypoints.api.app import app
 
 __all__ = ["app"]
 
