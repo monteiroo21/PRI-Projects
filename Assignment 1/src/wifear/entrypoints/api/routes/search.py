@@ -2,8 +2,8 @@
 
 from fastapi import APIRouter
 
-from sapien.core.model import Document
-from sapien.entrypoints.api.model import SearchResponse
+from wifear.core.model import Document
+from wifear.entrypoints.api.model import SearchResponse
 
 router = APIRouter(tags=["search engine"])
 
