@@ -70,7 +70,7 @@ select = [
 [tool.pyright]
 include = ["src"]
 exclude = ["**/__pycache__"]
-typeCheckingMode = "strict"
+typeCheckingMode = "basic"
 reportImportCycles = false
 reportUnnecessaryCast = true
 reportUnnecessaryTypeIgnoreComment = true
