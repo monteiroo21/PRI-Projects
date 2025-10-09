@@ -683,47 +683,6 @@ wheels = [
 ]
 
 [[package]]
-name = "sapien"
-version = "0.1.0"
-source = { editable = "." }
-dependencies = [
-    { name = "fastapi", extra = ["standard"] },
-    { name = "pandas" },
-    { name = "psutil" },
-    { name = "pyarrow" },
-    { name = "pydantic" },
-    { name = "pydantic-core" },
-    { name = "uvicorn" },
-]
-
-[package.dev-dependencies]
-dev = [
-    { name = "pre-commit" },
-    { name = "pyarrow-stubs" },
-    { name = "pyright" },
-    { name = "ruff" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "fastapi", extras = ["standard"], specifier = ">=0.116.1" },
-    { name = "pandas", specifier = ">=2.3.3" },
-    { name = "psutil", specifier = ">=7.0.0" },
-    { name = "pyarrow", specifier = ">=19.0.1" },
-    { name = "pydantic", specifier = ">=2.11.9" },
-    { name = "pydantic-core", specifier = ">=2.33.2" },
-    { name = "uvicorn", specifier = ">=0.35.0" },
-]
-
-[package.metadata.requires-dev]
-dev = [
-    { name = "pre-commit", specifier = ">=3.6.0" },
-    { name = "pyarrow-stubs", specifier = ">=20.0.0.20250825" },
-    { name = "pyright", specifier = ">=1.1.0" },
-    { name = "ruff", specifier = ">=0.1.0" },
-]
-
-[[package]]
 name = "sentry-sdk"
 version = "2.38.0"
 source = { registry = "https://pypi.org/simple" }
@@ -961,6 +920,7 @@ version = "0.1.0"
 source = { editable = "." }
 dependencies = [
     { name = "fastapi", extra = ["standard"] },
+    { name = "pandas" },
     { name = "psutil" },
     { name = "pyarrow" },
     { name = "pydantic" },
@@ -979,6 +939,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "fastapi", extras = ["standard"], specifier = ">=0.116.1" },
+    { name = "pandas", specifier = ">=2.3.3" },
     { name = "psutil", specifier = ">=7.0.0" },
     { name = "pyarrow", specifier = ">=19.0.1" },
     { name = "pydantic", specifier = ">=2.11.9" },
