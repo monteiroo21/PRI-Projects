@@ -1,0 +1,9 @@
+{
+  "venvPath": ".",
+  "venv": ".venv",
+  "typeCheckingMode": "basic",
+  "reportMissingTypeStubs": "none",
+  "reportMissingImports": "none",
+  "pythonVersion": "3.13",
+  "extraPaths": ["Assignment 1/src"]
+}
