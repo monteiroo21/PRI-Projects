@@ -1,14 +1,14 @@
-import json
 import os
+import json
 from typing import cast
-
 import numpy as np
 import pandas as pd
 from pandas import DataFrame, Series
 
-DATA_PATH = "../../data/ptwiki-articles-with-redirects.arrow"
-OUTPUT_JSON = "../../data/ptwiki_clean.json"
-LIMIT = 2000  # number of documents to keep
+BASE_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+DATA_PATH = os.path.join(BASE_DIR, "data", "ptwiki-articles-with-redirects.arrow")
+OUTPUT_JSON = os.path.join(BASE_DIR, "data", "ptwiki_clean.json")
+LIMIT = 2000
 
 
 def read_arrow_to_json(path: str, output_json: str, limit: int = 2000) -> DataFrame:
