@@ -41,8 +41,8 @@ class PortugueseTokenizer:
         return stems
 
 
-# Quick test example
-if __name__ == "__main__":
-    tokenizer = PortugueseTokenizer(min_len=3)
-    text = "Os carros elétricos estão a tornar-se populares em Portugal."
-    print(tokenizer.tokenize(text))
+# # Quick test example
+# if __name__ == "__main__":
+#     tokenizer = PortugueseTokenizer(min_len=3)
+#     text = "Os carros elétricos estão a tornar-se populares em Portugal."
+#     print(tokenizer.tokenize(text))

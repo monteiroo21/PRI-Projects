@@ -1,7 +1,7 @@
 import argparse
 
 from wifear.core.limit_memory import start_memory_monitor
-from wifear.core.logging import setup_logging
+from wifear.core.logger import setup_logging
 
 setup_logging()
 start_memory_monitor(show_memory_updates=True)
