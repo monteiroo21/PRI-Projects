@@ -39,19 +39,17 @@ class SPIMIIndexer:
                 index.clear()
                 block_id += 1
 
-        # write last block
         if index:
             self._write_block(index, block_id)
-        print(f"Created {block_id + 1} SPIMI blocks.")
 
     def _write_block(self, index, block_id: int):
         """Write one block’s dictionary to disk."""
         block_path = os.path.join(self.output_dir, f"block_{block_id:03d}.json")
         with open(block_path, "w", encoding="utf-8") as f:
-            json.dump(index, f, ensure_ascii=False)
+            json.dump(index, f, ensure_ascii=False, indent=4)
         print(f"[SPIMI] Block {block_id} written to {block_path}")
 
-    def merge_blocks(self, output_path="index_final.json", min_df: int = 2):
+    def merge_blocks(self, output_path="data/index_final.json", min_df: int = 3):
         """Merge all block files into a single index."""
         final_index = defaultdict(lambda: defaultdict(list))
 
@@ -62,9 +60,8 @@ class SPIMIIndexer:
                 for doc_id, positions in postings.items():
                     final_index[term][doc_id].extend(positions)
 
-        # Optional: remove rare terms
         final_index = {t: p for t, p in final_index.items() if len(p) >= min_df}
 
         with open(output_path, "w", encoding="utf-8") as f:
-            json.dump(final_index, f, ensure_ascii=False)
+            json.dump(final_index, f, ensure_ascii=False, indent=4)
         print(f"[SPIMI] Final merged index saved to {output_path}")
