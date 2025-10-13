@@ -28,21 +28,10 @@ class PortugueseTokenizer:
     def tokenize(self, text: str) -> List[str]:
         # Convert text to lowercase
         text = text.lower()
-
         # Extract alphabetic tokens (keep accented characters)
         tokens = self.token_pattern.findall(text)
-
         # Remove stopwords and short tokens
         tokens = [t for t in tokens if t not in self.stopwords and len(t) >= self.min_len]
-
         # Apply stemming
         stems = [self.stemmer.stem(t) for t in tokens]
-
         return stems
-
-
-# # Quick test example
-# if __name__ == "__main__":
-#     tokenizer = PortugueseTokenizer(min_len=3)
-#     text = "Os carros elétricos estão a tornar-se populares em Portugal."
-#     print(tokenizer.tokenize(text))
