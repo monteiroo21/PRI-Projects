@@ -1,63 +1,75 @@
 import json
 import os
-from typing import cast
+import json
+from typing import List
+import pyarrow.dataset as ds
 
-import numpy as np
-import pandas as pd
-from pandas import DataFrame, Series
-
-DATA_PATH = "../../data/ptwiki-articles-with-redirects.arrow"
-OUTPUT_JSON = "../../data/ptwiki_clean.json"
-LIMIT = 2000  # number of documents to keep
+BASE_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+DATA_PATH = os.path.join(BASE_DIR, "data", "ptwiki-articles-with-redirects.arrow")
+OUTPUT_JSON = os.path.join(BASE_DIR, "data", "ptwiki_clean.json")
+BATCH_SIZE = 50_000
+LIMIT = None
 
 
-def read_arrow_to_json(path: str, output_json: str, limit: int = 2000) -> DataFrame:
-    """Read an Arrow dataset, clean it, keep only N records, and export to JSON."""
-    print(f"Reading Arrow dataset from: {path}")
+def clean_record(record: dict) -> bool:
+    """Filter and clean a single record from the dataset."""
+    if record.get("redirect"):
+        return False
+    text = record.get("text", "")
+    return isinstance(text, str) and text.strip() != ""
 
-    # Load dataset
-    df: DataFrame = pd.read_feather(path)
-    print(f"Dataset loaded successfully with {len(df):,} documents")
-    print("Available columns:", list(df.columns))
 
-    # Cleaning
-    redirect_col = cast(Series, df["redirect"])
-    text_col = cast(Series, df["text"])
+def read_arrow_to_json_in_batches(path: str, output_json: str, batch_size: int = 50_000, limit: int | None = None):
+    """
+    Read a large Arrow dataset in small batches using pyarrow.dataset,
+    clean it, and incrementally export to JSON.
+    """
+    dataset = ds.dataset(path, format="feather")  # Works for .arrow or .feather files
+    scanner = dataset.scanner(batch_size=batch_size)
+    total_written = 0
+    first_record = True
 
-    mask_not_redirect = ~redirect_col.astype(bool)
-    mask_not_empty = text_col.notna() & (text_col.astype(str).str.strip() != "")
-    mask = mask_not_redirect & mask_not_empty
-
-    df = df.loc[mask].copy()
-    print(f"Cleaned dataset: {len(df):,} valid documents remaining")
-
-    # Limit to first N records
-    df = df.head(limit)
-    print(f"Limiting dataset to first {limit:,} records")
-
-    # Convert NumPy arrays in 'out_links' to Python lists
-    if "out_links" in df.columns:
-        df["out_links"] = df["out_links"].apply(
-            lambda x: list(x) if isinstance(x, (np.ndarray, list)) else []
-        )
-
-    # Ensure output directory exists
     os.makedirs(os.path.dirname(output_json), exist_ok=True)
-
-    # Convert to JSON and save
-    records = df.to_dict(orient="records")
-
     with open(output_json, "w", encoding="utf-8") as f:
-        json.dump(records, f, ensure_ascii=False, indent=4)
+        f.write("[\n")
 
-    print(f"Saved cleaned dataset to: {output_json}")
+    for i, record_batch in enumerate(scanner.to_batches()):
+        df = record_batch.to_pandas()
 
-    # Preview first 2 documents
-    print("\nSample documents:")
-    print(json.dumps(records[:2], ensure_ascii=False, indent=4))
+        # Convert 'out_links' field to list
+        if "out_links" in df.columns:
+            df["out_links"] = df["out_links"].apply(
+                lambda x: list(x) if isinstance(x, (list, tuple)) else []
+            )
 
-    return df
+        # Clean and filter
+        records = [r for r in df.to_dict(orient="records") if clean_record(r)]
+
+        # Apply limit
+        if limit and total_written + len(records) > limit:
+            records = records[: limit - total_written]
+
+        # Write incrementally
+        with open(output_json, "a", encoding="utf-8") as f:
+            for rec in records:
+                if not first_record:
+                    f.write(",\n")
+                json.dump(rec, f, ensure_ascii=False)
+                first_record = False
+
+        total_written += len(records)
+        print(f"Processed batch {i+1} → total written: {total_written:,}")
+
+        if limit and total_written >= limit:
+            print("Reached limit, stopping.")
+            break
+
+    # Close JSON properly
+    with open(output_json, "a", encoding="utf-8") as f:
+        f.write("\n]\n")
+
+    print(f"\nSaved {total_written:,} cleaned documents to: {output_json}")
 
 
 if __name__ == "__main__":
-    _ = read_arrow_to_json(DATA_PATH, OUTPUT_JSON, LIMIT)
+    read_arrow_to_json_in_batches(DATA_PATH, OUTPUT_JSON, batch_size=BATCH_SIZE, limit=LIMIT)

@@ -8,7 +8,7 @@ ready to accept requests.
 
 """
 
-from wifear.core.logging import setup_logging
+from wifear.core.logger import setup_logging
 from wifear.entrypoints.api.app import app
 
 __all__ = ["app"]

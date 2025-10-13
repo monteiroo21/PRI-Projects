@@ -15,6 +15,7 @@ dependencies = [
     "uvicorn>=0.35.0",
     "psutil>=7.0.0",
     "pandas>=2.3.3",
+    "nltk>=3.9.2",
 ]
 
 [dependency-groups]
