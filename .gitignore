@@ -210,3 +210,4 @@ __marimo__/
 *.csv
 *.arrow
 *.json
+*.json.gz
