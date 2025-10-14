@@ -2,12 +2,36 @@ import gzip
 import json
 import os
 from collections import defaultdict
+from multiprocessing import Pool, cpu_count
 from typing import Dict, List
 
 import ijson
 import psutil
 
 from wifear.core.tokenizer import PortugueseTokenizer
+
+
+def process_chunk(chunk_id, docs, output_dir, tokenizer_config):
+    """Worker process: build an inverted index from a batch of documents and write to disk."""
+
+    tokenizer = PortugueseTokenizer(**tokenizer_config)
+    index = {}
+    total_tokens = 0
+
+    for local_doc_id, doc in enumerate(docs):
+        text = doc.get("text", "")
+        tokens = tokenizer.tokenize(text)
+        total_tokens += len(tokens)
+
+        for pos, term in enumerate(tokens):
+            index.setdefault(term, {}).setdefault(local_doc_id, []).append(pos)
+
+    block_path = os.path.join(output_dir, f"block_{chunk_id:03d}.json.gz")
+    with gzip.open(block_path, "wt", encoding="utf-8") as f:
+        json.dump(index, f, ensure_ascii=False, separators=(",", ":"))
+
+    print(f"[Worker {chunk_id}] Block written ({len(index):,} terms) → {block_path}")
+    return len(docs), total_tokens
 
 
 class SPIMIIndexer:
@@ -42,48 +66,87 @@ class SPIMIIndexer:
     # ------------------------------------------------------------
     # Indexing Step
     # ------------------------------------------------------------
-    def index_documents(self, json_path: str):
-        """Incrementally read and index documents from a large JSON array file.
+    def index_documents(self, json_path: str, chunk_size: int = 10000):
+        """Parallel SPIMI indexing with bounded memory usage."""
+        print(f"[SPIMI] Parallel indexing from {json_path} using {cpu_count()} cores.")
+        os.makedirs(self.output_dir, exist_ok=True)
 
-        Writes SPIMI blocks (.gz) whenever memory approaches limit.
-        """
-        index: Dict[str, Dict[int, List[int]]] = defaultdict(lambda: defaultdict(list))
-        docmap = {}
-        block_id = 0
         num_docs = 0
         total_tokens = 0
+        chunk_id = 0
+        active_jobs = []
+        max_parallel = min(cpu_count(), 4)  # lower if memory is tight
 
-        print(f"[SPIMI] Indexing from {json_path} (streaming mode)...")
+        with Pool(processes=max_parallel) as pool:
+            with open(json_path, encoding="utf-8") as f:
+                chunk_docs = []
+                for doc in ijson.items(f, "item"):
+                    chunk_docs.append(doc)
+                    if len(chunk_docs) >= chunk_size:
+                        # submit to worker
+                        job = pool.apply_async(
+                            process_chunk,
+                            (
+                                chunk_id,
+                                chunk_docs,
+                                self.output_dir,
+                                getattr(self.tokenizer, "config", {}),
+                            ),
+                        )
+                        active_jobs.append(job)
+                        chunk_docs = []
+                        chunk_id += 1
 
-        with open(json_path, encoding="utf-8") as f:
-            # ijson parses JSON arrays incrementally
-            for doc in ijson.items(f, "item"):
-                doc_id = num_docs
-                num_docs += 1
-                title = doc.get("title", f"doc_{doc_id}")
-                text = doc.get("text", "")
-                tokens = self.tokenizer.tokenize(text)
-                total_tokens += len(tokens)
+                        # limit number of concurrent jobs to keep memory safe
+                        if len(active_jobs) >= max_parallel:
+                            for j in active_jobs:
+                                docs_processed, tokens = j.get()
+                                num_docs += docs_processed
+                                total_tokens += tokens
+                            active_jobs.clear()
 
-                docmap[doc_id] = title
+                        # monitor memory
+                        if psutil.Process(os.getpid()).memory_info().rss > self.memory_limit * 0.8:
+                            print("[SPIMI] Waiting for workers to free memory...")
+                            for j in active_jobs:
+                                docs_processed, tokens = j.get()
+                                num_docs += docs_processed
+                                total_tokens += tokens
+                            active_jobs.clear()
 
-                for pos, term in enumerate(tokens):
-                    index[term][doc_id].append(pos)
+                # last partial chunk
+                if chunk_docs:
+                    job = pool.apply_async(
+                        process_chunk,
+                        (
+                            chunk_id,
+                            chunk_docs,
+                            self.output_dir,
+                            getattr(self.tokenizer, "config", {}),
+                        ),
+                    )
+                    active_jobs.append(job)
+                    chunk_id += 1
 
-                # Prevent memory overflow
-                if len(index) > 250_000 or self._memory_full():
-                    self._write_block(index, block_id)
-                    index.clear()
-                    block_id += 1
+                # collect remaining jobs
+                for j in active_jobs:
+                    docs_processed, tokens = j.get()
+                    num_docs += docs_processed
+                    total_tokens += tokens
 
-        # Write remaining terms
-        if index:
-            self._write_block(index, block_id)
+            pool.close()
+            pool.join()
 
-        # Save document mapping and metadata
-        self._save_metadata(docmap, num_docs, total_tokens)
+        # metadata
+        avg_len = total_tokens / max(num_docs, 1)
+        meta_path = os.path.join(self.output_dir, "metadata.json")
+        metadata = {"num_docs": num_docs, "avg_doc_len": avg_len, "num_blocks": chunk_id}
+        with open(meta_path, "w", encoding="utf-8") as f:
+            json.dump(metadata, f, indent=4)
 
-        print(f"[SPIMI] Completed: {num_docs:,} documents processed into {block_id + 1} block(s).")
+        print(
+            f"[SPIMI] Done — {num_docs:,} docs, {chunk_id} blocks created (avg_len={avg_len:.2f})"
+        )
 
     # ------------------------------------------------------------
     # Block Writing
