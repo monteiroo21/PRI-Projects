@@ -1,17 +1,17 @@
-import os
 import gzip
 import json
-import psutil
-import ijson
+import os
 from collections import defaultdict
 from typing import Dict, List
+
+import ijson
+import psutil
 
 from wifear.core.tokenizer import PortugueseTokenizer
 
 
 class SPIMIIndexer:
-    """
-    Efficient Single-Pass In-Memory Indexer (SPIMI) for large-scale corpora.
+    """Efficient Single-Pass In-Memory Indexer (SPIMI) for large-scale corpora.
 
     Key features:
     - Processes the corpus incrementally (no full JSON load).
@@ -43,8 +43,8 @@ class SPIMIIndexer:
     # Indexing Step
     # ------------------------------------------------------------
     def index_documents(self, json_path: str):
-        """
-        Incrementally read and index documents from a large JSON array file.
+        """Incrementally read and index documents from a large JSON array file.
+
         Writes SPIMI blocks (.gz) whenever memory approaches limit.
         """
         index: Dict[str, Dict[int, List[int]]] = defaultdict(lambda: defaultdict(list))
@@ -55,7 +55,7 @@ class SPIMIIndexer:
 
         print(f"[SPIMI] Indexing from {json_path} (streaming mode)...")
 
-        with open(json_path, "r", encoding="utf-8") as f:
+        with open(json_path, encoding="utf-8") as f:
             # ijson parses JSON arrays incrementally
             for doc in ijson.items(f, "item"):
                 doc_id = num_docs
@@ -117,40 +117,69 @@ class SPIMIIndexer:
     # ------------------------------------------------------------
     # Merge Step
     # ------------------------------------------------------------
-    def merge_blocks(self, output_path: str = "data/index_final.json.gz", min_df: int = 3):
-        """
-        Merge compressed SPIMI blocks into a single final inverted index.
-        Filters out terms with document frequency < min_df.
+    def merge_blocks(self, output_path: str = "data/index_final.json", min_df: int = 3):
+        """Merge compressed SPIMI blocks into a single final inverted index.
+
+        Uses streaming reads to avoid loading full blocks into memory.
+        Flushes frequently to stay under the memory limit.
         """
         final_index: Dict[str, Dict[int, List[int]]] = defaultdict(lambda: defaultdict(list))
         block_files = sorted(
             [f for f in os.listdir(self.output_dir) if f.startswith("block_") and f.endswith(".gz")]
         )
 
-        print(f"[SPIMI] Merging {len(block_files)} blocks with min_df={min_df}...")
+        print(f"[SPIMI] Merging {len(block_files)} blocks with min_df={min_df} (streaming mode)...")
 
-        for block_file in block_files:
+        # Remove any previous final index
+        if os.path.exists(output_path):
+            os.remove(output_path)
+
+        for block_id, block_file in enumerate(block_files):
             block_path = os.path.join(self.output_dir, block_file)
+            print(f"[SPIMI] Streaming block {block_id}: {block_file}")
+
             with gzip.open(block_path, "rt", encoding="utf-8") as f:
-                block = json.load(f)
-            for term, postings in block.items():
-                for doc_id, positions in postings.items():
-                    final_index[term][int(doc_id)].extend(positions)
+                # Iterate key/value pairs at the root level
+                for term, postings in ijson.kvitems(f, ""):
+                    # Merge postings
+                    for doc_id, positions in postings.items():
+                        final_index[term][int(doc_id)].extend(positions)
 
-            # Flush periodically to keep memory safe
-            if len(final_index) > 250_000 or self._memory_full():
-                self._flush_partial(final_index, output_path, append=True)
-                final_index.clear()
+                    # Periodic flush to prevent memory overload
+                    if len(final_index) >= 50_000 or self._memory_full():
+                        self._flush_partial(final_index, output_path, min_df, append=True)
+                        final_index.clear()
 
+        # Write any remaining terms
         if final_index:
-            self._flush_partial(final_index, output_path, append=True)
+            self._flush_partial(final_index, output_path, min_df, append=True)
 
         print(f"[SPIMI] Merge completed → {output_path}")
 
-    def _flush_partial(self, partial_index: Dict[str, Dict[int, List[int]]], output_path: str, append=False):
-        """Write a partial merged index incrementally."""
-        mode = "at" if append else "wt"
-        filtered = {t: p for t, p in partial_index.items() if len(p) >= 3}
-        with gzip.open(output_path, mode, encoding="utf-8") as f:
-            json.dump(filtered, f, ensure_ascii=False, separators=(",", ":"))
+    # ------------------------------------------------------------
+    # Incremental Flush (Plain JSON)
+    # ------------------------------------------------------------
+    def _flush_partial(
+        self,
+        partial_index: Dict[str, Dict[int, List[int]]],
+        output_path: str,
+        min_df: int,
+        append: bool = False,
+    ):
+        """Write a partial merged index incrementally in plain JSON."""
+        filtered = {t: p for t, p in partial_index.items() if len(p) >= min_df}
+        mode = "a" if append else "w"
+
+        # If appending, we ensure proper JSON array-like structure
+        if append and os.path.exists(output_path):
+            with open(output_path, mode, encoding="utf-8") as f:
+                # Remove the last '}' to allow concatenation
+                f.seek(f.tell() - 1)
+                f.write(",")
+                json.dump(filtered, f, ensure_ascii=False, indent=2)
+                f.write("}")
+        else:
+            with open(output_path, mode, encoding="utf-8") as f:
+                json.dump(filtered, f, ensure_ascii=False, indent=2)
+
         print(f"[SPIMI] Partial merge flush ({len(filtered):,} terms) → {output_path}")
