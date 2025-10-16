@@ -55,17 +55,11 @@ class SPIMIIndexer:
         self.memory_limit = memory_limit_mb * 1024 * 1024
         os.makedirs(output_dir, exist_ok=True)
 
-    # ------------------------------------------------------------
-    # Memory Control
-    # ------------------------------------------------------------
     def _memory_full(self) -> bool:
         """Return True if current memory usage exceeds threshold."""
         rss = psutil.Process(os.getpid()).memory_info().rss
         return rss > self.memory_limit * 0.95  # flush before hitting hard limit
 
-    # ------------------------------------------------------------
-    # Indexing Step
-    # ------------------------------------------------------------
     def index_documents(self, json_path: str, chunk_size: int = 10000):
         """Parallel SPIMI indexing with bounded memory usage."""
         print(f"[SPIMI] Parallel indexing from {json_path} using {cpu_count()} cores.")
@@ -148,9 +142,6 @@ class SPIMIIndexer:
             f"[SPIMI] Done — {num_docs:,} docs, {chunk_id} blocks created (avg_len={avg_len:.2f})"
         )
 
-    # ------------------------------------------------------------
-    # Block Writing
-    # ------------------------------------------------------------
     def _write_block(self, index: Dict[str, Dict[int, List[int]]], block_id: int):
         """Write a compressed block to disk (gzip)."""
         block_path = os.path.join(self.output_dir, f"block_{block_id:03d}.json.gz")
@@ -158,9 +149,6 @@ class SPIMIIndexer:
             json.dump(index, f, ensure_ascii=False, separators=(",", ":"))
         print(f"[SPIMI] Block {block_id} written ({len(index):,} terms) → {block_path}")
 
-    # ------------------------------------------------------------
-    # Metadata
-    # ------------------------------------------------------------
     def _save_metadata(self, docmap: Dict[int, str], num_docs: int, total_tokens: int):
         """Save document map and general metadata."""
         docmap_path = os.path.join(self.output_dir, "docmap.json.gz")
@@ -177,9 +165,6 @@ class SPIMIIndexer:
             json.dump(metadata, f, indent=4)
         print(f"[SPIMI] Metadata saved ({num_docs:,} docs, avg_len={metadata['avg_doc_len']:.2f})")
 
-    # ------------------------------------------------------------
-    # Merge Step
-    # ------------------------------------------------------------
     def merge_blocks(self, output_path: str = "data/index_final.json", min_df: int = 3):
         """Merge compressed SPIMI blocks into a single final inverted index.
 
@@ -219,9 +204,6 @@ class SPIMIIndexer:
 
         print(f"[SPIMI] Merge completed → {output_path}")
 
-    # ------------------------------------------------------------
-    # Incremental Flush (Plain JSON)
-    # ------------------------------------------------------------
     def _flush_partial(
         self,
         partial_index: Dict[str, Dict[int, List[int]]],
