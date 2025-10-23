@@ -62,14 +62,13 @@ class SPIMIIndexer:
 
     def index_documents(self, json_path: str, chunk_size: int = 10000):
         """Parallel SPIMI indexing with bounded memory usage."""
-        print(f"[SPIMI] Parallel indexing from {json_path} using {cpu_count()} cores.")
         os.makedirs(self.output_dir, exist_ok=True)
 
         num_docs = 0
         total_tokens = 0
         chunk_id = 0
         active_jobs = []
-        max_parallel = min(cpu_count(), 4)  # lower if memory is tight
+        max_parallel = min(cpu_count(), 4)
 
         with Pool(processes=max_parallel) as pool:
             with open(json_path, encoding="utf-8") as f:
@@ -141,29 +140,6 @@ class SPIMIIndexer:
         print(
             f"[SPIMI] Done — {num_docs:,} docs, {chunk_id} blocks created (avg_len={avg_len:.2f})"
         )
-
-    def _write_block(self, index: Dict[str, Dict[int, List[int]]], block_id: int):
-        """Write a compressed block to disk (gzip)."""
-        block_path = os.path.join(self.output_dir, f"block_{block_id:03d}.json.gz")
-        with gzip.open(block_path, "wt", encoding="utf-8") as f:
-            json.dump(index, f, ensure_ascii=False, separators=(",", ":"))
-        print(f"[SPIMI] Block {block_id} written ({len(index):,} terms) → {block_path}")
-
-    def _save_metadata(self, docmap: Dict[int, str], num_docs: int, total_tokens: int):
-        """Save document map and general metadata."""
-        docmap_path = os.path.join(self.output_dir, "docmap.json.gz")
-        with gzip.open(docmap_path, "wt", encoding="utf-8") as f:
-            json.dump(docmap, f, ensure_ascii=False)
-
-        metadata = {
-            "num_docs": num_docs,
-            "avg_doc_len": total_tokens / max(num_docs, 1),
-            "tokenizer_config": getattr(self.tokenizer, "config", {}),
-        }
-        meta_path = os.path.join(self.output_dir, "metadata.json")
-        with open(meta_path, "w", encoding="utf-8") as f:
-            json.dump(metadata, f, indent=4)
-        print(f"[SPIMI] Metadata saved ({num_docs:,} docs, avg_len={metadata['avg_doc_len']:.2f})")
 
     def merge_blocks(self, output_path: str = "data/index_final.json", min_df: int = 3):
         """Merge compressed SPIMI blocks into a single final inverted index.
