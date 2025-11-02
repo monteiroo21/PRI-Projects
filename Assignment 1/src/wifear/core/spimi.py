@@ -1,9 +1,9 @@
 import gzip
+import heapq
 import json
 import os
 from collections import defaultdict
 from multiprocessing import Pool, cpu_count
-from typing import Dict, List
 
 import ijson
 import psutil
@@ -29,7 +29,9 @@ def process_chunk(chunk_id, docs, output_dir, tokenizer_config, doc_offset=0):
 
     block_path = os.path.join(output_dir, f"block_{chunk_id:03d}.json.gz")
     with gzip.open(block_path, "wt", encoding="utf-8") as f:
-        json.dump(index, f, ensure_ascii=False, separators=(",", ":"))
+        # sort terms alphabetically
+        sorted_index = {term: index[term] for term in sorted(index.keys())}
+        json.dump(sorted_index, f, ensure_ascii=False, separators=(",", ":"))
 
     print(f"[Worker {chunk_id}] Block written ({len(index):,} terms) → {block_path}")
     return len(docs), total_tokens
@@ -148,65 +150,56 @@ class SPIMIIndexer:
         )
 
     def merge_blocks(self, output_path: str = "data/index_final.json", min_df: int = 3):
-        """Merge compressed SPIMI blocks into a single final inverted index.
-
-        Uses streaming reads to avoid loading full blocks into memory.
-        Flushes frequently to stay under the memory limit.
-        """
-        final_index: Dict[str, Dict[int, List[int]]] = defaultdict(lambda: defaultdict(list))
         block_files = sorted(
             [f for f in os.listdir(self.output_dir) if f.startswith("block_") and f.endswith(".gz")]
         )
+        if not block_files:
+            return
 
-        print(f"[SPIMI] Merging {len(block_files)} blocks with min_df={min_df} (streaming mode)...")
+        print(f"[SPIMI] Merging {len(block_files)} blocks (streaming + heap)...")
 
-        # Remove any previous final index
-        if os.path.exists(output_path):
-            os.remove(output_path)
-
-        for block_id, block_file in enumerate(block_files):
-            block_path = os.path.join(self.output_dir, block_file)
-            print(f"[SPIMI] Streaming block {block_id}: {block_file}")
-
-            with gzip.open(block_path, "rt", encoding="utf-8") as f:
-                # Iterate key/value pairs at the root level
+        def block_stream(path):
+            with gzip.open(path, "rt", encoding="utf-8") as f:
                 for term, postings in ijson.kvitems(f, ""):
-                    # Merge postings
-                    for doc_id, positions in postings.items():
-                        final_index[term][int(doc_id)].extend(positions)
+                    yield term, postings
 
-                    # Periodic flush to prevent memory overload
-                    if len(final_index) >= 50_000 or self._memory_full():
-                        self._flush_partial(final_index, output_path, min_df, append=True)
-                        final_index.clear()
+        streams = [block_stream(os.path.join(self.output_dir, f)) for f in block_files]
+        heap = []
+        current = [next(s, None) for s in streams]
 
-        # Write any remaining terms
-        if final_index:
-            self._flush_partial(final_index, output_path, min_df, append=True)
+        for i, item in enumerate(current):
+            if item:
+                heapq.heappush(heap, (item[0], i, item[1]))
+                print(f"[SPIMI] Initialized stream for block {block_files[i]}")
 
-        print(f"[SPIMI] Merge completed → {output_path}")
+        os.makedirs(os.path.dirname(output_path), exist_ok=True)
+        with open(output_path, "w", encoding="utf-8") as out:
+            out.write("{\n")
+            first = True
+            term = None
+            postings = defaultdict(list)
 
-    def _flush_partial(
-        self,
-        partial_index: Dict[str, Dict[int, List[int]]],
-        output_path: str,
-        min_df: int,
-        append: bool = False,
-    ):
-        """Write a partial merged index incrementally in plain JSON."""
-        filtered = {t: p for t, p in partial_index.items() if len(p) >= min_df}
-        mode = "a" if append else "w"
+            while heap:
+                t, i, p = heapq.heappop(heap)
+                if term and t != term:
+                    if len(postings) >= min_df:
+                        if not first:
+                            out.write(",\n")
+                        first = False
+                        json.dump({term: dict(postings)}, out, ensure_ascii=False)
+                        print(f"[SPIMI] Merged postings for term '{term}'")
+                    postings = defaultdict(list)
+                term = t
+                for d, pos in p.items():
+                    postings[int(d)].extend(pos)
+                nxt = next(streams[i], None)
+                if nxt:
+                    heapq.heappush(heap, (nxt[0], i, nxt[1]))
 
-        # If appending, we ensure proper JSON array-like structure
-        if append and os.path.exists(output_path):
-            with open(output_path, mode, encoding="utf-8") as f:
-                # Remove the last '}' to allow concatenation
-                f.seek(f.tell() - 1)
-                f.write(",")
-                json.dump(filtered, f, ensure_ascii=False, indent=2)
-                f.write("}")
-        else:
-            with open(output_path, mode, encoding="utf-8") as f:
-                json.dump(filtered, f, ensure_ascii=False, indent=2)
+            if term and len(postings) >= min_df:
+                if not first:
+                    out.write(",\n")
+                json.dump({term: dict(postings)}, out, ensure_ascii=False)
+            out.write("\n}\n")
 
-        print(f"[SPIMI] Partial merge flush ({len(filtered):,} terms) → {output_path}")
+        print(f"[SPIMI] Done → {output_path}")
