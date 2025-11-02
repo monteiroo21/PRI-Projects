@@ -11,7 +11,7 @@ import psutil
 from wifear.core.tokenizer import PortugueseTokenizer
 
 
-def process_chunk(chunk_id, docs, output_dir, tokenizer_config):
+def process_chunk(chunk_id, docs, output_dir, tokenizer_config, doc_offset=0):
     """Worker process: build an inverted index from a batch of documents and write to disk."""
 
     tokenizer = PortugueseTokenizer(**tokenizer_config)
@@ -19,12 +19,13 @@ def process_chunk(chunk_id, docs, output_dir, tokenizer_config):
     total_tokens = 0
 
     for local_doc_id, doc in enumerate(docs):
+        global_doc_id = doc_offset + local_doc_id
         text = doc.get("text", "")
         tokens = tokenizer.tokenize(text)
         total_tokens += len(tokens)
 
         for pos, term in enumerate(tokens):
-            index.setdefault(term, {}).setdefault(local_doc_id, []).append(pos)
+            index.setdefault(term, {}).setdefault(global_doc_id, []).append(pos)
 
     block_path = os.path.join(output_dir, f"block_{chunk_id:03d}.json.gz")
     with gzip.open(block_path, "wt", encoding="utf-8") as f:
@@ -69,6 +70,7 @@ class SPIMIIndexer:
         chunk_id = 0
         active_jobs = []
         max_parallel = min(cpu_count(), 4)
+        global_doc_offset = 0
 
         with Pool(processes=max_parallel) as pool:
             with open(json_path, encoding="utf-8") as f:
@@ -84,8 +86,10 @@ class SPIMIIndexer:
                                 chunk_docs,
                                 self.output_dir,
                                 getattr(self.tokenizer, "config", {}),
+                                global_doc_offset,
                             ),
                         )
+                        global_doc_offset += len(chunk_docs)
                         active_jobs.append(job)
                         chunk_docs = []
                         chunk_id += 1
@@ -116,8 +120,10 @@ class SPIMIIndexer:
                             chunk_docs,
                             self.output_dir,
                             getattr(self.tokenizer, "config", {}),
+                            global_doc_offset,
                         ),
                     )
+                    global_doc_offset += len(chunk_docs)
                     active_jobs.append(job)
                     chunk_id += 1
 
