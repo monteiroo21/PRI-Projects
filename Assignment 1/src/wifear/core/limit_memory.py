@@ -31,7 +31,7 @@ def start_memory_monitor(show_memory_updates: bool = False):
     """
 
     memory_config = MemoryMonitorConfig(
-        limit_mb=20000, interval_sec=0.1, memory_updates=show_memory_updates
+        limit_mb=2000, interval_sec=0.1, memory_updates=show_memory_updates
     )
     monitor_thread = threading.Thread(
         target=memory_monitor_worker, args=(memory_config,), daemon=True

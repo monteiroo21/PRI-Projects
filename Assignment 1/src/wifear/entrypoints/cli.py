@@ -1,4 +1,5 @@
 import argparse
+import time
 
 from wifear.core.limit_memory import start_memory_monitor
 from wifear.core.logger import setup_logging
@@ -18,8 +19,14 @@ def main():
     tokenizer = PortugueseTokenizer()
     indexer = SPIMIIndexer(tokenizer)
 
+    tic1 = time.time()
     indexer.index_documents(args.file_path)
+    tic = time.time()
     indexer.merge_blocks()
+    toc = time.time()
+    print(f"[SPIMI] Indexing completed in {tic - tic1:.2f} seconds.")
+    print(f"[SPIMI] Merging completed in {toc - tic:.2f} seconds.")
+    print(f"[SPIMI] Total processing time: {toc - tic1:.2f} seconds.")
 
 
 if __name__ == "__main__":

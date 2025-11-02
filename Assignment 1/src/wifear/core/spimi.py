@@ -1,8 +1,8 @@
 import gzip
-import heapq
 import json
 import os
 from collections import defaultdict
+from heapq import merge
 from multiprocessing import Pool, cpu_count
 
 import ijson
@@ -61,7 +61,7 @@ class SPIMIIndexer:
     def _memory_full(self) -> bool:
         """Return True if current memory usage exceeds threshold."""
         rss = psutil.Process(os.getpid()).memory_info().rss
-        return rss > self.memory_limit * 0.95  # flush before hitting hard limit
+        return rss > self.memory_limit * 0.9  # flush before hitting hard limit
 
     def index_documents(self, json_path: str, chunk_size: int = 10000):
         """Parallel SPIMI indexing with bounded memory usage."""
@@ -74,7 +74,7 @@ class SPIMIIndexer:
         max_parallel = min(cpu_count(), 4)
         global_doc_offset = 0
 
-        with Pool(processes=max_parallel) as pool:
+        with Pool(processes=max_parallel, maxtasksperchild=1) as pool:
             with open(json_path, encoding="utf-8") as f:
                 chunk_docs = []
                 for doc in ijson.items(f, "item"):
@@ -154,9 +154,10 @@ class SPIMIIndexer:
             [f for f in os.listdir(self.output_dir) if f.startswith("block_") and f.endswith(".gz")]
         )
         if not block_files:
+            print("[SPIMI] No blocks to merge.")
             return
 
-        print(f"[SPIMI] Merging {len(block_files)} blocks (streaming + heap)...")
+        print(f"[SPIMI] Merging {len(block_files)} blocks...")
 
         def block_stream(path):
             with gzip.open(path, "rt", encoding="utf-8") as f:
@@ -164,13 +165,7 @@ class SPIMIIndexer:
                     yield term, postings
 
         streams = [block_stream(os.path.join(self.output_dir, f)) for f in block_files]
-        heap = []
-        current = [next(s, None) for s in streams]
-
-        for i, item in enumerate(current):
-            if item:
-                heapq.heappush(heap, (item[0], i, item[1]))
-                print(f"[SPIMI] Initialized stream for block {block_files[i]}")
+        merged = merge(*streams, key=lambda x: x[0])
 
         os.makedirs(os.path.dirname(output_path), exist_ok=True)
         with open(output_path, "w", encoding="utf-8") as out:
@@ -178,28 +173,33 @@ class SPIMIIndexer:
             first = True
             term = None
             postings = defaultdict(list)
+            buffer, buffer_size = [], 2000
 
-            while heap:
-                t, i, p = heapq.heappop(heap)
-                if term and t != term:
-                    if len(postings) >= min_df:
-                        if not first:
-                            out.write(",\n")
-                        first = False
-                        json.dump({term: dict(postings)}, out, ensure_ascii=False)
-                        print(f"[SPIMI] Merged postings for term '{term}'")
-                    postings = defaultdict(list)
-                term = t
-                for d, pos in p.items():
-                    postings[int(d)].extend(pos)
-                nxt = next(streams[i], None)
-                if nxt:
-                    heapq.heappush(heap, (nxt[0], i, nxt[1]))
-
-            if term and len(postings) >= min_df:
+            def flush_buffer():
+                nonlocal first
+                if not buffer:
+                    return
                 if not first:
                     out.write(",\n")
-                json.dump({term: dict(postings)}, out, ensure_ascii=False)
+                out.write(",\n".join(buffer))
+                buffer.clear()
+                first = False
+
+            for t, p in merged:
+                if term and t != term:
+                    if len(postings) >= min_df:
+                        buffer.append(json.dumps({term: dict(postings)}, ensure_ascii=False))
+                        if len(buffer) >= buffer_size:
+                            flush_buffer()
+                    postings.clear()
+                term = t
+                for d, pos in p.items():
+                    postings[int(d)] = postings.get(int(d), []) + pos
+                print(f"[SPIMI] Merging term: {term}", end="\r")
+
+            if term and len(postings) >= min_df:
+                buffer.append(json.dumps({term: dict(postings)}, ensure_ascii=False))
+            flush_buffer()
             out.write("\n}\n")
 
         print(f"[SPIMI] Done → {output_path}")
