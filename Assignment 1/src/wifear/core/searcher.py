@@ -1,106 +1,85 @@
 import json
 import math
-from collections import defaultdict
-from typing import List, Optional, Tuple
 
 from wifear.core.tokenizer import PortugueseTokenizer
 
 
-class BM25Ranker:
-    def __init__(
-        self,
-        index_path: str,
-        metadata_path: str,
-        tokenizer_config: Optional[dict] = None,
-        k1: float = 1.2,
-        b: float = 0.75,
-    ):
-        self.k1 = k1
-        self.b = b
+class SearchEngine:
+    def __init__(self, index_path, tokenizer: PortugueseTokenizer):
+        # Load the index and set the tokenizer upon initialization
+        self.index = self.load_index(index_path)
+        self.tokenizer = tokenizer
+        self.avg_doc_len = self.calculate_avg_doc_len()
 
-        self.tokenizer = PortugueseTokenizer(**(tokenizer_config or {}))
-
-        with open(metadata_path, encoding="utf-8") as f:
-            meta = json.load(f)
-        self.N = int(meta.get("num_docs", 0))
-        self.avgdl = float(meta.get("avg_doc_len", 1.0))
-
-        self.index = {}
+    def load_index(self, index_path):
+        """Load the pre-built inverted index from disk."""
         with open(index_path, encoding="utf-8") as f:
-            for line in f:
-                line = line.strip().rstrip(",")
-                if not line or line in ["{", "}", "[", "]"]:
-                    continue
-                try:
-                    data = json.loads(line)
-                    self.index.update(data)
-                except json.JSONDecodeError:
-                    continue
+            index = json.load(f)
+        print("Index loaded successfully.")
+        return index
 
-        # calcula comprimento dos documentos (dl)
-        self.doc_len = defaultdict(int)
-        for postings in self.index.values():
-            for d, positions in postings.items():
-                self.doc_len[int(d)] += len(positions)
+    def calculate_avg_doc_len(self):
+        """Calculate the average document length for the corpus."""
+        total_len = 0
+        num_docs = 0
 
-        total_len = sum(self.doc_len.values())
-        if not self.avgdl:
-            self.avgdl = total_len / max(self.N, 1)
+        for term, postings in self.index.items():
+            for doc_id, positions in postings.items():
+                total_len += len(positions)
+                num_docs += 1
 
-    def _idf(self, n: int) -> float:
-        N = max(self.N, 1)
-        n = max(1, min(n, N))
-        return math.log((N - n + 0.5) / (n + 0.5) + 1.0)
+        avg_len = total_len / num_docs if num_docs else 0
+        print(f"Average document length: {avg_len}")
+        return avg_len
 
-    def _bm25(self, tf: int, dl: int, idf: float) -> float:
-        denom = tf + self.k1 * (1 - self.b + self.b * (dl / self.avgdl))
-        return idf * (tf * (self.k1 + 1)) / denom if denom != 0 else 0
+    def idf(self, term):
+        """Calculate the IDF (Inverse Document Frequency) for a term."""
+        df = len(self.index.get(term, {}))  # Document frequency of the term
+        N = len(self.index)  # Total number of documents in the index
+        if df == 0:
+            return 0
+        return math.log((N - df + 0.5) / (df + 0.5) + 1.0)
 
-    def search(self, query: str, top_k: int = 10) -> List[Tuple[int, float]]:
-        terms = self.tokenizer.tokenize(query)
-        scores = defaultdict(float)
+    def bm25_score(self, query_terms, doc_id, k1=1.2, b=0.75):
+        """Calculate the BM25 score for a document given the query."""
+        score = 0
+        for term in query_terms:
+            if term in self.index:
+                f = self.index[term].get(doc_id, 0)  # Term frequency in document
+                doc_len = len(self.index[term].get(doc_id, []))
+                idf = self.idf(term)
+                score += (
+                    idf * (f * (k1 + 1)) / (f + k1 * (1 - b + b * (doc_len / self.avg_doc_len)))
+                )
+        return score
 
-        for t in terms:
-            postings = self.index.get(t)
-            if not postings:
-                continue
-            n = len(postings)
-            idf = self._idf(n)
-            for d_str, positions in postings.items():
-                d = int(d_str)
-                tf = len(positions)
-                dl = self.doc_len[d]
-                scores[d] += self._bm25(tf, dl, idf)
+    def query(self, query_text):
+        """Search for documents that match the given query text."""
+        # Tokenize the query
+        query_terms = self.tokenizer.tokenize(query_text)
 
-        ranked = sorted(scores.items(), key=lambda x: x[1], reverse=True)
-        return ranked[:top_k]
+        result_docs = {}
+
+        # Process each query term and calculate BM25 scores
+        for doc_id in self.index:
+            score = self.bm25_score(query_terms, doc_id)
+            if score > 0:
+                result_docs[doc_id] = score
+
+        # Sort results by BM25 score in descending order
+        sorted_results = sorted(result_docs.items(), key=lambda x: x[1], reverse=True)
+        return sorted_results
 
 
-if __name__ == "__main__":
-    index_path = "data/index_final.json"
-    metadata_path = "index_blocks/metadata.json"
-    docs_path = "data/ptwiki_clean.json"  # <--- ficheiro original que indexaste
+# Usage example:
+# Initialize the tokenizer
+tokenizer = PortugueseTokenizer(min_len=3)
 
-    print("=== Searcher ===")
-    query = input("Escreve a tua query: ").strip()
+# Initialize the SearchEngine with the path to your index and the tokenizer
+search_engine = SearchEngine(index_path="data/index_final.json", tokenizer=tokenizer)
 
-    bm25 = BM25Ranker(
-        index_path=index_path,
-        metadata_path=metadata_path,
-        tokenizer_config={"min_len": 2},
-    )
+# Example query
+query_text = "freguesia Amares"  # Replace with the user's query
+query_results = search_engine.query(query_text)
 
-    print("[INFO] A carregar documentos originais...")
-    with open(docs_path, encoding="utf-8") as f:
-        docs = json.load(f)
-
-    results = bm25.search(query, top_k=5)
-
-    print("\nTop resultados:")
-    for rank, (doc_id, score) in enumerate(results, 1):
-        doc = docs[doc_id]
-        text = doc.get("text", "")
-        title = doc.get("title", f"Documento {doc_id}")
-        snippet = text[:300].replace("\n", " ") + ("..." if len(text) > 300 else "")
-        print(f"\n{rank}. [{title}] (DocID={doc_id}, Score={score:.4f})")
-        print(f"→ {snippet}")
+print("Query Results:", query_results)

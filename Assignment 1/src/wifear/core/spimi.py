@@ -63,7 +63,7 @@ class SPIMIIndexer:
         rss = psutil.Process(os.getpid()).memory_info().rss
         return rss > self.memory_limit * 0.9  # flush before hitting hard limit
 
-    def index_documents(self, json_path: str, chunk_size: int = 10000):
+    def index_documents(self, json_path: str, chunk_size: int = 5000):
         """Parallel SPIMI indexing with bounded memory usage."""
         os.makedirs(self.output_dir, exist_ok=True)
 
