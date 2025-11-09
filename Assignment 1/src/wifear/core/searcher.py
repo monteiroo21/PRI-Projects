@@ -56,13 +56,24 @@ class SearchEngine:
     # -------------------------------------------------------------------------
 
     def _load_index(self, path: str) -> Dict[str, Dict[int, List[int]]]:
-        """Load the positional inverted index from disk."""
+        """Load the positional inverted index from a JSONL file (one JSON object per line)."""
+        index: Dict[str, Dict[int, List[int]]] = {}
         with open(path, encoding="utf-8") as f:
-            data = json.load(f)
-        # Ensure doc IDs are integers
-        for term, postings in data.items():
-            data[term] = {int(d): pos for d, pos in postings.items()}
-        return data
+            for line in f:
+                if not line.strip():
+                    continue
+                try:
+                    obj = json.loads(line)
+                except json.JSONDecodeError as e:
+                    print(f"[WARN] Skipping malformed line: {e}")
+                    continue
+                # Merge term postings into the global index
+                for term, postings in obj.items():
+                    # Convert keys to int
+                    index[term] = {int(d): pos for d, pos in postings.items()}
+        print(f"[INFO] Index loaded successfully with {len(index):,} terms.")
+        return index
+
 
     def _load_metadata(self, meta_path: str | None) -> Dict:
         """Load metadata if available (num_docs, avg_doc_len, tokenizer config, etc.)."""
@@ -232,7 +243,7 @@ class SearchEngine:
 if __name__ == "__main__":
     tokenizer = PortugueseTokenizer(min_len=3)
     engine = SearchEngine(
-        index_path="data/index_final.json",
+        index_path="data/index_final.jsonl",
         tokenizer=tokenizer,
         metadata_path="index_blocks/metadata.json",  # Adjust this path as needed
         k1=1.2,
