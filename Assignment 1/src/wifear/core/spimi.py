@@ -71,14 +71,21 @@ class SPIMIIndexer:
         total_tokens = 0
         chunk_id = 0
         active_jobs = []
-        max_parallel = min(cpu_count(), 4)
+        max_parallel = min(cpu_count(), 2)
         global_doc_offset = 0
 
         with Pool(processes=max_parallel, maxtasksperchild=1) as pool:
             with open(json_path, encoding="utf-8") as f:
                 chunk_docs = []
-                for doc in ijson.items(f, "item"):
-                    chunk_docs.append(doc)
+                for line in f:
+                    if not line.strip():
+                        continue
+                    try:
+                        doc = json.loads(line)
+                        chunk_docs.append(doc)
+                    except json.JSONDecodeError as e:
+                        print(f"[SPIMI] JSON decode error: {e}")
+                        continue
                     if len(chunk_docs) >= chunk_size:
                         # submit to worker
                         job = pool.apply_async(
@@ -149,7 +156,7 @@ class SPIMIIndexer:
             f"[SPIMI] Done — {num_docs:,} docs, {chunk_id} blocks created (avg_len={avg_len:.2f})"
         )
 
-    def merge_blocks(self, output_path: str = "data/index_final.json", min_df: int = 3):
+    def merge_blocks(self, output_path: str = "data/index_final.jsonl", min_df: int = 3):
         block_files = sorted(
             [f for f in os.listdir(self.output_dir) if f.startswith("block_") and f.endswith(".gz")]
         )
@@ -169,23 +176,17 @@ class SPIMIIndexer:
 
         os.makedirs(os.path.dirname(output_path), exist_ok=True)
         with open(output_path, "w", encoding="utf-8") as out:
-            out.write("{\n")
-            first = True
             term = None
             postings = defaultdict(list)
             buffer, buffer_size = [], 2000
 
             def flush_buffer():
-                nonlocal first
                 if not buffer:
                     return
-                if not first:
-                    out.write(",\n")
-                out.write(",\n".join(buffer))
+                out.write("\n".join(buffer) + "\n")
                 buffer.clear()
-                first = False
 
-            for t, p in merged:
+            for t, p in merged:     # for each term-postings pair
                 if term and t != term:
                     if len(postings) >= min_df:
                         buffer.append(json.dumps({term: dict(postings)}, ensure_ascii=False))
@@ -200,6 +201,5 @@ class SPIMIIndexer:
             if term and len(postings) >= min_df:
                 buffer.append(json.dumps({term: dict(postings)}, ensure_ascii=False))
             flush_buffer()
-            out.write("\n}\n")
 
         print(f"[SPIMI] Done → {output_path}")
