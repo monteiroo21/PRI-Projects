@@ -64,19 +64,18 @@ class SPIMIIndexer:
         return rss > self.memory_limit * 0.9  # flush before hitting hard limit
 
     def index_documents(self, json_path: str, chunk_size: int = 5000):
-        """Parallel SPIMI indexing with bounded memory usage."""
-        os.makedirs(self.output_dir, exist_ok=True)
+        """Parallel SPIMI indexing with continuous worker feeding using imap_unordered()."""
 
+        os.makedirs(self.output_dir, exist_ok=True)
         num_docs = 0
         total_tokens = 0
         chunk_id = 0
-        active_jobs = []
-        max_parallel = min(cpu_count(), 2)
         global_doc_offset = 0
+        max_parallel = min(cpu_count(), 3)
 
-        with Pool(processes=max_parallel, maxtasksperchild=1) as pool:
-            with open(json_path, encoding="utf-8") as f:
-                chunk_docs = []
+        def chunk_generator(file_path, chunk_size):
+            chunk_docs = []
+            with open(file_path, encoding="utf-8") as f:
                 for line in f:
                     if not line.strip():
                         continue
@@ -86,66 +85,35 @@ class SPIMIIndexer:
                     except json.JSONDecodeError as e:
                         print(f"[SPIMI] JSON decode error: {e}")
                         continue
+
                     if len(chunk_docs) >= chunk_size:
-                        # submit to worker
-                        job = pool.apply_async(
-                            process_chunk,
-                            (
-                                chunk_id,
-                                chunk_docs,
-                                self.output_dir,
-                                getattr(self.tokenizer, "config", {}),
-                                global_doc_offset,
-                            ),
-                        )
-                        global_doc_offset += len(chunk_docs)
-                        active_jobs.append(job)
-                        chunk_docs = []
-                        chunk_id += 1
+                        yield chunk_id, chunk_docs[:], global_doc_offset
+                        chunk_docs.clear()
 
-                        # limit number of concurrent jobs to keep memory safe
-                        if len(active_jobs) >= max_parallel:
-                            for j in active_jobs:
-                                docs_processed, tokens = j.get()
-                                num_docs += docs_processed
-                                total_tokens += tokens
-                            active_jobs.clear()
-
-                        # monitor memory
-                        if psutil.Process(os.getpid()).memory_info().rss > self.memory_limit * 0.8:
-                            print("[SPIMI] Waiting for workers to free memory...")
-                            for j in active_jobs:
-                                docs_processed, tokens = j.get()
-                                num_docs += docs_processed
-                                total_tokens += tokens
-                            active_jobs.clear()
-
-                # last partial chunk
                 if chunk_docs:
-                    job = pool.apply_async(
-                        process_chunk,
-                        (
-                            chunk_id,
-                            chunk_docs,
-                            self.output_dir,
-                            getattr(self.tokenizer, "config", {}),
-                            global_doc_offset,
-                        ),
-                    )
-                    global_doc_offset += len(chunk_docs)
-                    active_jobs.append(job)
-                    chunk_id += 1
+                    yield chunk_id, chunk_docs[:], global_doc_offset
 
-                # collect remaining jobs
-                for j in active_jobs:
-                    docs_processed, tokens = j.get()
-                    num_docs += docs_processed
-                    total_tokens += tokens
+        def job_iterator(file_path, chunk_size):
+            nonlocal chunk_id, global_doc_offset
+            for chunk_id, docs, doc_offset in chunk_generator(file_path, chunk_size):
+                yield (
+                    chunk_id,
+                    docs,
+                    self.output_dir,
+                    getattr(self.tokenizer, "config", {}),
+                    doc_offset,
+                )
+                global_doc_offset += len(docs)
+                chunk_id += 1
 
-            pool.close()
-            pool.join()
+        with Pool(processes=max_parallel) as pool:
+            for docs_processed, tokens in pool.imap_unordered(
+                lambda args: process_chunk(*args), job_iterator(json_path, chunk_size), chunksize=1
+            ):
+                num_docs += docs_processed
+                total_tokens += tokens
+                print(f"[SPIMI] Processed {num_docs:,} docs so far...", end="\r")
 
-        # metadata
         avg_len = total_tokens / max(num_docs, 1)
         meta_path = os.path.join(self.output_dir, "metadata.json")
         metadata = {"num_docs": num_docs, "avg_doc_len": avg_len, "num_blocks": chunk_id}
@@ -153,7 +121,7 @@ class SPIMIIndexer:
             json.dump(metadata, f, indent=4)
 
         print(
-            f"[SPIMI] Done — {num_docs:,} docs, {chunk_id} blocks created (avg_len={avg_len:.2f})"
+            f"\n[SPIMI] Done — {num_docs:,} docs, {chunk_id} blocks created (avg_len={avg_len:.2f})"
         )
 
     def merge_blocks(self, output_path: str = "data/index_final.jsonl", min_df: int = 3):
@@ -186,7 +154,7 @@ class SPIMIIndexer:
                 out.write("\n".join(buffer) + "\n")
                 buffer.clear()
 
-            for t, p in merged:     # for each term-postings pair
+            for t, p in merged:  # for each term-postings pair
                 if term and t != term:
                     if len(postings) >= min_df:
                         buffer.append(json.dumps({term: dict(postings)}, ensure_ascii=False))
