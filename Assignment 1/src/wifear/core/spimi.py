@@ -37,6 +37,10 @@ def process_chunk(chunk_id, docs, output_dir, tokenizer_config, doc_offset=0):
     return len(docs), total_tokens
 
 
+def _run_process_chunk(args):
+    return process_chunk(*args)
+
+
 class SPIMIIndexer:
     """Efficient Single-Pass In-Memory Indexer (SPIMI) for large-scale corpora.
 
@@ -108,7 +112,7 @@ class SPIMIIndexer:
 
         with Pool(processes=max_parallel) as pool:
             for docs_processed, tokens in pool.imap_unordered(
-                lambda args: process_chunk(*args), job_iterator(json_path, chunk_size), chunksize=1
+                _run_process_chunk, job_iterator(json_path, chunk_size), chunksize=1
             ):
                 num_docs += docs_processed
                 total_tokens += tokens
