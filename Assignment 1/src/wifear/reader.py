@@ -1,14 +1,12 @@
 import json
 import os
-import json
-from typing import List
-import pyarrow.dataset as ds
+from typing import List, Optional
 
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-DATA_PATH = os.path.join(BASE_DIR, "data", "ptwiki-articles-with-redirects.arrow")
-OUTPUT_JSON = os.path.join(BASE_DIR, "data", "ptwiki_clean.json")
+INPUT_JSONL = os.path.join(BASE_DIR, "data", "ptwiki-articles-with-redirects.jsonl")
+OUTPUT_JSONL = os.path.join(BASE_DIR, "data", "ptwiki_clean.jsonl")
 BATCH_SIZE = 50_000
-LIMIT = None
+LIMIT: Optional[int] = None
 
 
 def clean_record(record: dict) -> bool:
@@ -19,57 +17,54 @@ def clean_record(record: dict) -> bool:
     return isinstance(text, str) and text.strip() != ""
 
 
-def read_arrow_to_json_in_batches(path: str, output_json: str, batch_size: int = 50_000, limit: int | None = None):
-    """
-    Read a large Arrow dataset in small batches using pyarrow.dataset,
-    clean it, and incrementally export to JSON.
-    """
-    dataset = ds.dataset(path, format="feather")  # Works for .arrow or .feather files
-    scanner = dataset.scanner(batch_size=batch_size)
+def read_jsonl_to_jsonl_in_batches(
+    input_path: str, output_path: str, batch_size: int = 50_000, limit: Optional[int] = None
+):
+    """Read a large JSONL file line by line"""
+    os.makedirs(os.path.dirname(output_path), exist_ok=True)
     total_written = 0
-    first_record = True
+    buffer: List[dict] = []
 
-    os.makedirs(os.path.dirname(output_json), exist_ok=True)
-    with open(output_json, "w", encoding="utf-8") as f:
-        f.write("[\n")
+    with open(input_path, encoding="utf-8") as f_in, open(
+        output_path, "w", encoding="utf-8"
+    ) as f_out:
+        for i, line in enumerate(f_in, 1):
+            try:
+                record = json.loads(line)
+            except json.JSONDecodeError:
+                continue  # skip malformed lines
 
-    for i, record_batch in enumerate(scanner.to_batches()):
-        df = record_batch.to_pandas()
+            if not clean_record(record):
+                continue
 
-        # Convert 'out_links' field to list
-        if "out_links" in df.columns:
-            df["out_links"] = df["out_links"].apply(
-                lambda x: list(x) if isinstance(x, (list, tuple)) else []
-            )
+            # Normalize out_links
+            if "out_links" in record and not isinstance(record["out_links"], list):
+                record["out_links"] = list(record["out_links"]) if record["out_links"] else []
 
-        # Clean and filter
-        records = [r for r in df.to_dict(orient="records") if clean_record(r)]
+            buffer.append(record)
 
-        # Apply limit
-        if limit and total_written + len(records) > limit:
-            records = records[: limit - total_written]
+            # Write batch
+            if len(buffer) >= batch_size:
+                for rec in buffer:
+                    json.dump(rec, f_out, ensure_ascii=False)
+                    f_out.write("\n")
+                total_written += len(buffer)
+                print(f"Processed {i:,} lines → total written: {total_written:,}")
+                buffer.clear()
 
-        # Write incrementally
-        with open(output_json, "a", encoding="utf-8") as f:
-            for rec in records:
-                if not first_record:
-                    f.write(",\n")
-                json.dump(rec, f, ensure_ascii=False)
-                first_record = False
+                if limit and total_written >= limit:
+                    print("Reached limit, stopping.")
+                    break
 
-        total_written += len(records)
-        print(f"Processed batch {i+1} → total written: {total_written:,}")
+        # Write remaining buffer
+        if buffer and (not limit or total_written < limit):
+            for rec in buffer[: (limit - total_written) if limit else None]:
+                json.dump(rec, f_out, ensure_ascii=False)
+                f_out.write("\n")
+            total_written += len(buffer)
 
-        if limit and total_written >= limit:
-            print("Reached limit, stopping.")
-            break
-
-    # Close JSON properly
-    with open(output_json, "a", encoding="utf-8") as f:
-        f.write("\n]\n")
-
-    print(f"\nSaved {total_written:,} cleaned documents to: {output_json}")
+    print(f"\nSaved {total_written:,} cleaned documents to: {output_path}")
 
 
 if __name__ == "__main__":
-    read_arrow_to_json_in_batches(DATA_PATH, OUTPUT_JSON, batch_size=BATCH_SIZE, limit=LIMIT)
+    read_jsonl_to_jsonl_in_batches(INPUT_JSONL, OUTPUT_JSONL, batch_size=BATCH_SIZE, limit=LIMIT)
