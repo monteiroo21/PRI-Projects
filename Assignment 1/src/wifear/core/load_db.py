@@ -1,8 +1,14 @@
+import os
 import json
 import sqlite3
 
-DB_PATH = "index.db"
-JSONL_PATH = "../../../data/index_final.jsonl"
+BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../.."))
+if not os.path.exists(os.path.join(BASE_DIR, "data")):
+    BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../.."))
+
+JSONL_PATH = os.path.join(BASE_DIR, "data", "index_final.jsonl")
+DB_PATH = os.path.join(BASE_DIR, "index.db")
+
 
 conn = sqlite3.connect(DB_PATH)
 cur = conn.cursor()
@@ -33,5 +39,5 @@ if batch:
     cur.executemany("INSERT OR REPLACE INTO inverted_index VALUES (?, ?)", batch)
     conn.commit()
 
-print("✅ Done importing index into SQLite")
+print("Done importing index into SQLite")
 conn.close()
