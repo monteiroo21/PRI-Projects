@@ -1,4 +1,3 @@
-# searcher.py
 from __future__ import annotations
 
 import json
@@ -7,13 +6,15 @@ import sqlite3
 from collections import defaultdict
 from typing import Dict, List, Tuple
 
+import numpy as np
 from wifear.core.tokenizer import PortugueseTokenizer
 
 
 class SearchEngine:
     """
-    Search engine that loads an inverted positional index from SQLite (index.db)
-    created by load_db.py, and performs BM25 ranking and relevance feedback.
+    Optimized Search Engine that loads an inverted positional index entirely
+    from SQLite (index.db) into memory and performs BM25 ranking and
+    relevance feedback efficiently.
     """
 
     def __init__(
@@ -25,7 +26,8 @@ class SearchEngine:
         b: float = 0.75,
     ):
         """
-        Initialize the search engine by connecting to the SQLite database.
+        Initialize the search engine by connecting to the SQLite database,
+        loading all postings into memory, and precomputing statistics.
 
         Args:
             db_path: Path to the SQLite database created by load_db.py.
@@ -38,24 +40,42 @@ class SearchEngine:
         self.k1 = k1
         self.b = b
 
-        # Connect to SQLite database
+        print(f"[INFO] Connecting to SQLite index at {db_path}...")
         self.conn = sqlite3.connect(db_path)
         self.cur = self.conn.cursor()
 
         # Load metadata if available
         meta = self._load_metadata(metadata_path)
+
+        # Load entire index into memory
+        print("[INFO] Loading entire inverted index into memory...")
+        self.index: Dict[str, Dict[int, List[int]]] = {}
+        self.cur.execute("SELECT term, postings FROM inverted_index")
+        for term, postings_json in self.cur.fetchall():
+            try:
+                self.index[term] = json.loads(postings_json)
+            except Exception:
+                continue
+        print(f"[INFO] Loaded {len(self.index):,} terms into memory.")
+
+        # Close DB connection (not needed anymore)
+        self.conn.close()
+        self.conn = None
+        self.cur = None
+
+        # Compute global stats
         self.N = meta.get("num_docs") or self._infer_num_docs()
         self.doc_len = self._compute_doc_lengths()
         self.avg_doc_len = meta.get("avg_doc_len") or (
             sum(self.doc_len.values()) / max(len(self.doc_len), 1)
         )
 
-        # Precompute IDF for all terms
+        # Precompute IDF
         self.idf: Dict[str, float] = {}
         self._precompute_idf()
 
-        print(f"[INFO] Search engine connected to {db_path}")
         print(f"[INFO] Documents: {self.N}, Avg. length: {self.avg_doc_len:.2f}")
+        print("[INFO] Search engine ready for real-time queries.")
 
     # -------------------------------------------------------------------------
     # Internal utilities
@@ -71,69 +91,31 @@ class SearchEngine:
         except FileNotFoundError:
             return {}
 
-    def _get_postings(self, term: str) -> Dict[int, List[int]]:
-        """
-        Retrieve the postings list (doc_id → positions) for a given term
-        directly from the SQLite database.
-        """
-        self.cur.execute("SELECT postings FROM inverted_index WHERE term = ?", (term,))
-        row = self.cur.fetchone()
-        if not row:
-            return {}
-        try:
-            return {int(doc): pos for doc, pos in json.loads(row[0]).items()}
-        except Exception:
-            return {}
-
     def _infer_num_docs(self) -> int:
-        """
-        Infer the total number of distinct documents in the index.
-        This iterates over all postings once.
-        """
-        print("[INFO] Counting total number of documents...")
+        """Infer number of unique documents in memory."""
+        print("[INFO] Counting total number of documents (in memory)...")
         doc_ids = set()
-        self.cur.execute("SELECT postings FROM inverted_index")
-        for (p,) in self.cur.fetchall():
-            try:
-                postings = json.loads(p)
-                doc_ids.update(map(int, postings.keys()))
-            except Exception:
-                continue
+        for postings in self.index.values():
+            doc_ids.update(postings.keys())
         print(f"[INFO] Found {len(doc_ids)} distinct documents.")
         return len(doc_ids)
 
     def _compute_doc_lengths(self) -> Dict[int, int]:
-        """
-        Compute document lengths based on total term occurrences.
-        Used for BM25 normalization.
-        """
+        """Compute document lengths from loaded postings."""
         print("[INFO] Computing document lengths...")
         dl = defaultdict(int)
-        self.cur.execute("SELECT postings FROM inverted_index")
-        for (p,) in self.cur.fetchall():
-            try:
-                postings = json.loads(p)
-                for doc_id, positions in postings.items():
-                    dl[int(doc_id)] += len(positions)
-            except Exception:
-                continue
+        for postings in self.index.values():
+            for doc_id, positions in postings.items():
+                dl[int(doc_id)] += len(positions)
         print(f"[INFO] Computed lengths for {len(dl)} documents.")
         return dict(dl)
 
     def _precompute_idf(self):
-        """
-        Precompute IDF (Inverse Document Frequency) values for all terms
-        to speed up BM25 calculations.
-        """
+        """Compute IDF (Inverse Document Frequency) for all terms."""
         print("[INFO] Precomputing IDF values...")
-        self.cur.execute("SELECT term, postings FROM inverted_index")
-        for term, p in self.cur.fetchall():
-            try:
-                postings = json.loads(p)
-                df = len(postings)
-                self.idf[term] = self._bm25_idf(self.N, df)
-            except Exception:
-                continue
+        for term, postings in self.index.items():
+            df = len(postings)
+            self.idf[term] = self._bm25_idf(self.N, df)
         print(f"[INFO] IDF computed for {len(self.idf)} terms.")
 
     # -------------------------------------------------------------------------
@@ -148,8 +130,8 @@ class SearchEngine:
         return math.log((N - df + 0.5) / (df + 0.5) + 1.0)
 
     def _bm25_doc_term(self, term: str, doc_id: int) -> float:
-        """Compute the BM25 contribution of a single term for one document."""
-        postings = self._get_postings(term)
+        """Compute BM25 contribution for one term in one document."""
+        postings = self.index.get(term)
         if not postings:
             return 0.0
         tf = len(postings.get(doc_id, []))
@@ -161,41 +143,50 @@ class SearchEngine:
         return idf * (tf * (self.k1 + 1)) / denom
 
     # -------------------------------------------------------------------------
-    # Query processing
+    # Query processing (optimized)
     # -------------------------------------------------------------------------
 
     def query(self, query_text: str, top_k: int = 10) -> List[Tuple[int, float]]:
         """
-        Execute a BM25-ranked search query.
-
-        Steps:
-            1. Tokenize the input query.
-            2. Collect all candidate documents containing any query term.
-            3. Compute BM25 scores for each document.
-            4. Return top-k ranked results.
+        Execute a BM25-ranked search query (fully in-memory, real-time).
         """
         terms = self.tokenizer.tokenize(query_text)
         if not terms:
             return []
 
+        # Gather candidate documents from all query terms
         candidate_docs = set()
         for t in terms:
-            postings = self._get_postings(t)
+            postings = self.index.get(t)
             if postings:
                 candidate_docs.update(postings.keys())
 
+        # Compute BM25 scores
         scores: Dict[int, float] = {}
-        for doc_id in candidate_docs:
-            score = 0.0
-            for t in terms:
-                score += self._bm25_doc_term(t, doc_id)
-            if score > 0:
-                scores[doc_id] = score
+        for t in terms:
+            postings = self.index.get(t)
+            if not postings:
+                continue
+            idf = self.idf.get(t, 0.0)
+            for doc_id, positions in postings.items():
+                tf = len(positions)
+                dl = self.doc_len.get(doc_id, 1)
+                denom = tf + self.k1 * (1 - self.b + self.b * (dl / (self.avg_doc_len or 1)))
+                score = idf * (tf * (self.k1 + 1)) / denom
+                scores[doc_id] = scores.get(doc_id, 0.0) + score
 
-        return sorted(scores.items(), key=lambda x: x[1], reverse=True)[:top_k]
+        if not scores:
+            return []
+
+        # Fast top-k with numpy
+        doc_ids = np.fromiter(scores.keys(), dtype=int)
+        doc_scores = np.fromiter(scores.values(), dtype=float)
+        top_idx = np.argsort(-doc_scores)[:top_k]
+
+        return [(int(doc_ids[i]), float(doc_scores[i])) for i in top_idx]
 
     # -------------------------------------------------------------------------
-    # Relevance feedback
+    # Relevance feedback (optimized)
     # -------------------------------------------------------------------------
 
     def like_document(
@@ -203,64 +194,62 @@ class SearchEngine:
     ) -> List[Tuple[int, float]]:
         """
         Retrieve documents similar to a given document using pseudo relevance feedback.
-        Optimized version that queries only relevant terms from SQLite.
+        Fully in-memory version.
         """
         tf_doc: Dict[str, int] = {}
-        doc_str = str(doc_id)
-
-        # Query only postings that contain this doc_id (instead of scanning all)
-        self.cur.execute("SELECT term, postings FROM inverted_index")
-        for term, p in self.cur.fetchall():
-            if doc_str in p:  # quick substring check avoids full json.loads for most terms
-                try:
-                    postings = json.loads(p)
-                    if doc_str in postings:
-                        tf_doc[term] = len(postings[doc_str])
-                except Exception:
-                    continue
+        for term, postings in self.index.items():
+            if doc_id in postings:
+                tf_doc[term] = len(postings[doc_id])
 
         if not tf_doc:
             print(f"[WARN] Document {doc_id} not found in index.")
             return []
 
-        # Select top weighted terms
+        # Select top-weighted terms
         scored_terms = sorted(
             ((t, tf * self.idf.get(t, 0.0)) for t, tf in tf_doc.items()),
             key=lambda x: x[1],
             reverse=True,
         )[:expand_terms]
 
-        # Build pseudo query
+        # Build pseudo-query
         pseudo_query_terms = []
         for t, w in scored_terms:
             reps = max(1, int(alpha * max(1.0, w) ** 0.5))
             pseudo_query_terms.extend([t] * reps)
 
-        # Collect candidate documents
-        candidate_docs = set()
-        for t, _ in scored_terms:
-            postings = self._get_postings(t)
-            if postings:
-                candidate_docs.update(postings.keys())
-        candidate_docs.discard(doc_id)
-
         # Compute similarity scores
         scores: Dict[int, float] = {}
-        for d in candidate_docs:
-            s = 0.0
-            for t in pseudo_query_terms:
-                s += self._bm25_doc_term(t, d)
-            if s > 0:
-                scores[d] = s
+        for t in pseudo_query_terms:
+            postings = self.index.get(t)
+            if not postings:
+                continue
+            idf = self.idf.get(t, 0.0)
+            for d, positions in postings.items():
+                if d == doc_id:
+                    continue
+                tf = len(positions)
+                dl = self.doc_len.get(d, 1)
+                denom = tf + self.k1 * (1 - self.b + self.b * (dl / (self.avg_doc_len or 1)))
+                score = idf * (tf * (self.k1 + 1)) / denom
+                scores[d] = scores.get(d, 0.0) + score
 
-        return sorted(scores.items(), key=lambda x: x[1], reverse=True)[:top_k]
+        if not scores:
+            return []
 
-    
+        doc_ids = np.fromiter(scores.keys(), dtype=int)
+        doc_scores = np.fromiter(scores.values(), dtype=float)
+        top_idx = np.argsort(-doc_scores)[:top_k]
+
+        return [(int(doc_ids[i]), float(doc_scores[i])) for i in top_idx]
+
+    # -------------------------------------------------------------------------
+    # Utility
+    # -------------------------------------------------------------------------
+
     def close(self):
-        """Close the SQLite connection."""
-        if self.conn:
-            self.conn.close()
-            print("[INFO] SQLite connection closed.")
+        """Compatibility method (DB already closed)."""
+        print("[INFO] Search engine closed (in-memory).")
 
 
 # -------------------------------------------------------------------------
