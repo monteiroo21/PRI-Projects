@@ -5,6 +5,9 @@ from typing import List, Optional
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 INPUT_JSONL = os.path.join(BASE_DIR, "data", "ptwiki-articles-with-redirects.jsonl")
 OUTPUT_JSONL = os.path.join(BASE_DIR, "data", "ptwiki_clean.jsonl")
+DOCSTORE_PATH = os.path.join(BASE_DIR, "data", "docstore.jsonl")
+
+# Batch size for processing and optional limit
 BATCH_SIZE = 50_000
 LIMIT: Optional[int] = None
 
@@ -24,10 +27,11 @@ def read_jsonl_to_jsonl_in_batches(
     os.makedirs(os.path.dirname(output_path), exist_ok=True)
     total_written = 0
     buffer: List[dict] = []
+    docstore_entries: List[dict] = []
 
-    with open(input_path, encoding="utf-8") as f_in, open(
-        output_path, "w", encoding="utf-8"
-    ) as f_out:
+    with open(input_path, encoding="utf-8") as f_in, \
+         open(output_path, "w", encoding="utf-8") as f_out, \
+         open(DOCSTORE_PATH, "w", encoding="utf-8") as f_doc:
         for i, line in enumerate(f_in, 1):
             try:
                 record = json.loads(line)
@@ -43,14 +47,25 @@ def read_jsonl_to_jsonl_in_batches(
 
             buffer.append(record)
 
-            # Write batch
+            # Create metadata entry for docstore
+            docstore_entries.append({
+                "id": total_written + len(buffer) - 1,
+                "title": record.get("title", "Untitled"),
+                "description": record.get("text", "")[:300].replace("\n", " "),
+            })
+
+            # Write in batches to avoid memory overflow
             if len(buffer) >= batch_size:
                 for rec in buffer:
                     json.dump(rec, f_out, ensure_ascii=False)
                     f_out.write("\n")
+                for meta in docstore_entries:
+                    json.dump(meta, f_doc, ensure_ascii=False)
+                    f_doc.write("\n")
                 total_written += len(buffer)
                 print(f"Processed {i:,} lines → total written: {total_written:,}")
                 buffer.clear()
+                docstore_entries.clear()
 
                 if limit and total_written >= limit:
                     print("Reached limit, stopping.")
@@ -61,6 +76,9 @@ def read_jsonl_to_jsonl_in_batches(
             for rec in buffer[: (limit - total_written) if limit else None]:
                 json.dump(rec, f_out, ensure_ascii=False)
                 f_out.write("\n")
+            for meta in docstore_entries[: (limit - total_written) if limit else None]:
+                json.dump(meta, f_doc, ensure_ascii=False)
+                f_doc.write("\n")
             total_written += len(buffer)
 
     print(f"\nSaved {total_written:,} cleaned documents to: {output_path}")
