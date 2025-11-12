@@ -51,7 +51,7 @@ def read_jsonl_to_jsonl_in_batches(
             docstore_entries.append({
                 "id": total_written + len(buffer) - 1,
                 "title": record.get("title", "Untitled"),
-                "description": record.get("text", "")[:300].replace("\n", " "),
+                "description": record.get("text", "").replace("\n", " ").strip(),
             })
 
             # Write in batches to avoid memory overflow
