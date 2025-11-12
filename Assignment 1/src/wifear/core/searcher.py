@@ -53,12 +53,28 @@ class SearchEngine:
         print("[INFO] Loading entire inverted index into memory...")
         self.index: Dict[str, Dict[int, List[int]]] = {}
         self.cur.execute("SELECT term, postings FROM inverted_index")
+        # for term, postings_json in self.cur.fetchall():
+        #     try:
+        #         self.index[term] = json.loads(postings_json)
+        #     except Exception:
+        #         continue
         for term, postings_json in self.cur.fetchall():
             try:
-                self.index[term] = json.loads(postings_json)
-            except Exception:
+                postings = json.loads(postings_json)
+                # Convert string doc_ids to integers
+                self.index[term] = {int(doc_id): positions for doc_id, positions in postings.items()}
+            except Exception as e:
+                print(f"[WARN] Failed to load term '{term}': {e}")
                 continue
         print(f"[INFO] Loaded {len(self.index):,} terms into memory.")
+
+        # Build forward (direct) index for fast document access
+        print("[INFO] Building forward index (document-term map)...")
+        self.forward_index: Dict[int, Dict[str, int]] = defaultdict(dict)
+        for term, postings in self.index.items():
+            for doc_id, positions in postings.items():
+                self.forward_index[doc_id][term] = len(positions)
+        print(f"[INFO] Built forward index for {len(self.forward_index):,} documents.")
 
         # Close DB connection (not needed anymore)
         self.conn.close()
@@ -218,10 +234,14 @@ class SearchEngine:
         Retrieve documents similar to a given document using pseudo relevance feedback.
         Fully in-memory version.
         """
-        tf_doc: Dict[str, int] = {}
-        for term, postings in self.index.items():
-            if doc_id in postings:
-                tf_doc[term] = len(postings[doc_id])
+        # tf_doc: Dict[str, int] = {}
+        # for term, postings in self.index.items():
+        #     if doc_id in postings:
+        #         tf_doc[term] = len(postings[doc_id])
+        tf_doc = self.forward_index.get(doc_id, {})
+        if not tf_doc:
+            print(f"[WARN] Document {doc_id} not found in forward index.")
+            return []
 
         if not tf_doc:
             print(f"[WARN] Document {doc_id} not found in index.")
@@ -294,5 +314,21 @@ if __name__ == "__main__":
     print("\n Search Results:")
     for doc in results:
         print(f"  {doc['id']}: {doc['title']} → {doc['score']:.4f}")
+
+    if results:
+        doc_id = results[0]["id"]
+        print(f"\n[TEST] Using doc_id={doc_id} ({results[0]['title']}) for similarity search\n")
+
+        similar_docs = engine.like_document(doc_id, top_k=10)
+        if not similar_docs:
+            print(f"[WARN] No similar documents found for ID {doc_id}")
+        else:
+            print(f"[INFO] Found {len(similar_docs)} similar documents for {doc_id}:\n")
+            for d_id, score in similar_docs:
+                meta = engine.docstore.get(d_id, {})
+                print(f"  {d_id}: {meta.get('title', 'Untitled')} → {score:.4f}")
+
+    else:
+        print("[ERROR] No documents returned by the base query.")
 
     engine.close()

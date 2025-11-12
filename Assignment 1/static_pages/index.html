@@ -410,10 +410,6 @@
                         <div class="result-id">ID: ${result.id}</div>
                         <div class="result-content">
                           ${escapeHtml(result.content.slice(0, 300))}...
-                          <button class="btn-similar" data-id="${
-                            result.id
-                          }">Search Similar</button>
-                        </div>
                     </div>
                 `
             )
@@ -451,14 +447,6 @@
         // Add placeholder suggestion
         queryInput.placeholder =
           "Try searching for 'machine learning', 'python', or enter a document ID...";
-      });
-
-      // Handle clicks on dynamically created "Search Similar" buttons
-      document.addEventListener("click", async (e) => {
-        if (e.target.classList.contains("btn-similar")) {
-          const docId = e.target.getAttribute("data-id");
-          await performSimilarSearch(docId);
-        }
       });
     </script>
   </body>
