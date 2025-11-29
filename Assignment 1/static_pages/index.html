@@ -159,12 +159,14 @@
         border: 1px solid #e0e0e0;
         border-radius: 10px;
         transition: all 0.3s ease;
+        width: 100%;
       }
 
       .result-item:hover {
         border-color: #667eea;
         box-shadow: 0 5px 15px rgba(102, 126, 234, 0.1);
         transform: translateY(-2px);
+        width: 100%;
       }
 
       .result-title {
@@ -254,6 +256,12 @@
           flex-direction: column;
         }
       }
+
+      #resultsContent {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(100%, 1fr));
+      gap: 1.5rem;
+    }
     </style>
   </head>
   <body>
@@ -410,6 +418,7 @@
                         <div class="result-id">ID: ${result.id}</div>
                         <div class="result-content">
                           ${escapeHtml(result.content.slice(0, 300))}...
+                        </div>
                     </div>
                 `
             )
