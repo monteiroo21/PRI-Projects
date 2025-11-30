@@ -1,0 +1,81 @@
+[project]
+name = "wifear"
+version = "0.1.0"
+description = "Wifear – Search Engine for Portuguese Wikipedia"
+authors = [
+    {name = "Tiago Almeida", email = "tiago.almeida@alchemi.bio"}
+]
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "pyarrow>=19.0.1",
+    "pydantic>=2.11.9",
+    "pydantic-core>=2.33.2",
+    "fastapi[standard]>=0.116.1",
+    "uvicorn>=0.35.0",
+    "psutil>=7.0.0",
+    "pandas>=2.3.3",
+    "nltk>=3.9.2",
+]
+
+[dependency-groups]
+dev = [
+    "ruff>=0.1.0",
+    "pyright>=1.1.0",
+    "pre-commit>=3.6.0",
+    "pyarrow-stubs>=20.0.0.20250825",
+]
+
+[project.scripts]
+cli = "wifear.entrypoints.cli:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/wifear"]
+
+[tool.ruff]
+line-length = 100
+src = ["src"]
+
+[tool.ruff.lint]
+ignore = [
+  "COM812", # -- over-aggressively insists on trailing commas where not desired --
+]
+select = [
+  "C4",      # -- flake8-comprehensions --
+  "COM",     # -- flake8-commas --
+  "D200",    # -- short docstring on one line --
+  "D205",    # -- docstring: blank line between summary line and further text --
+  "D209",    # -- multi-line docstring closing quotes on own line --
+  "D212",    # -- docstring summary line starts immediately after quotes --
+  "E",       # -- pycodestyle errors --
+  "F",       # -- pyflakes --
+  "I",       # -- isort (imports) --
+  "PLR0402", # -- Name compared with itself like `foo == foo` --
+  "PT",      # -- flake8-pytest-style --
+  "SIM",     # -- flake8-simplify --
+  "UP006",   # -- use built-in generics like `list` instead of `List` from `typing` --
+  "UP007",   # -- prefer `A | B` over `Union[A, B]` --
+  "UP008",   # -- use modern `super()` call without arguments --
+  "UP015",   # -- redundant `open()` mode parameter (like "r" is default) --
+  "UP017",   # -- use `datetime.UTC` instead of `datetime.timezone.utc` --
+  "UP018",   # -- unnecessary {literal_type} call like `str("abc")`. (rewrite as a literal) --
+  "UP032",   # -- use f-string instead of `.format()` call --
+  "UP034",   # -- avoid extraneous parentheses --
+  "UP040",   # -- prefer `type Xyz = ...` over `Xyz = TypeAlias(...)` --
+  "W291",    # -- remove trailing whitespace from end of line --
+]
+
+[tool.pyright]
+include = ["src"]
+exclude = ["**/__pycache__"]
+typeCheckingMode = "basic"
+reportImportCycles = false
+reportUnnecessaryCast = true
+reportUnnecessaryTypeIgnoreComment = true
+verboseOutput = true
+pythonVersion = "3.13"
+pythonPlatform = "All"
