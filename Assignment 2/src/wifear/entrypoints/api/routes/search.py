@@ -12,7 +12,6 @@ tokenizer = PortugueseTokenizer(min_len=3)
 engine = SearchEngine(
     db_path="index.db",
     tokenizer=tokenizer,
-    metadata_path="index_blocks/metadata.json",
     docstore_path="data/docstore.jsonl"
 )
 
