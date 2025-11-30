@@ -158,32 +158,89 @@ class SearchEngine:
 
         return sorted(scores.items(), key=lambda x: x[1], reverse=True)[:top_k]
 
+    # def neural_search(self, query_text: str, top_k: int = 10, candidates_k: int = 50) -> List[dict]:
+    #     if not self.reranker:
+    #         print("[WARN] Neural Reranker not loaded. Falling back to BM25.")
+    #         return self.query(query_text, top_k)
+            
+    #     candidates = self.query(query_text, top_k=candidates_k)
+        
+    #     if not candidates:
+    #         return []
+        
+    #     model_inputs = []
+    #     for doc in candidates:
+    #         title = doc.get('title', '')
+    #         desc = doc.get('description', '')
+    #         if title is None: title = ""
+    #         if desc is None: desc = ""
+            
+    #         doc_text = f"{title}. {desc}".strip()
+    #         model_inputs.append([query_text, doc_text])
+
+    #     neural_scores = self.reranker.predict(model_inputs, batch_size=16, show_progress_bar=False)
+
+    #     for i, doc in enumerate(candidates):
+    #         doc['score'] = float(neural_scores[i])
+    #         doc['rerank_score'] = float(neural_scores[i])
+
+    #     candidates.sort(key=lambda x: x['score'], reverse=True)
+        
+    #     return candidates[:top_k]
+
     def neural_search(self, query_text: str, top_k: int = 10, candidates_k: int = 50) -> List[dict]:
         if not self.reranker:
             print("[WARN] Neural Reranker not loaded. Falling back to BM25.")
             return self.query(query_text, top_k)
             
+        # BM25 candidates
         candidates = self.query(query_text, top_k=candidates_k)
-        
         if not candidates:
             return []
         
-        model_inputs = []
-        for doc in candidates:
+        # Pairs to score
+        pairs_to_score = []
+        pair_to_doc_map = [] 
+
+        # Get pairs
+        for doc_idx, doc in enumerate(candidates):
             title = doc.get('title', '')
             desc = doc.get('description', '')
-            if title is None: title = ""
-            if desc is None: desc = ""
+            full_text = f"{title}. {desc}"
             
-            doc_text = f"{title}. {desc}".strip()
-            model_inputs.append([query_text, doc_text])
+            # Get sentences
+            sentences = [s.strip() for s in full_text.split('.') if len(s.strip()) > 10]
+            
+            # If no sentences, use full text
+            if not sentences:
+                sentences = [full_text]
+            
+            for sent in sentences[:15]: 
+                pairs_to_score.append([query_text, sent])
+                pair_to_doc_map.append(doc_idx)
 
-        neural_scores = self.reranker.predict(model_inputs, batch_size=16, show_progress_bar=False)
+        if not pairs_to_score:
+            return candidates[:top_k]
+
+        # Get reranked scores
+        all_scores = self.reranker.predict(pairs_to_score, batch_size=32, show_progress_bar=True)
+
+        doc_max_scores = {i: -999.0 for i in range(len(candidates))}
+        doc_best_snippet = {i: "" for i in range(len(candidates))}
+
+        # Update scores
+        for i, score in enumerate(all_scores):
+            doc_idx = pair_to_doc_map[i]
+            if score > doc_max_scores[doc_idx]:
+                doc_max_scores[doc_idx] = float(score)
+                doc_best_snippet[doc_idx] = pairs_to_score[i][1]
 
         for i, doc in enumerate(candidates):
-            doc['score'] = float(neural_scores[i])
-            doc['rerank_score'] = float(neural_scores[i])
+            doc['score'] = doc_max_scores[i]
+            doc['rerank_score'] = doc_max_scores[i]
+            doc['best_snippet'] = doc_best_snippet[i] 
 
+        # Sort
         candidates.sort(key=lambda x: x['score'], reverse=True)
         
         return candidates[:top_k]
