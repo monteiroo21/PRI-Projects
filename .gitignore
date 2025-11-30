@@ -215,3 +215,5 @@ __marimo__/
 *.jsonl.gz
 *.db
 .DS_Store
+index.db-wal
+index.db-shm
