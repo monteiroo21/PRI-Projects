@@ -214,3 +214,4 @@ __marimo__/
 *.jsonl
 *.jsonl.gz
 *.db
+.DS_Store
