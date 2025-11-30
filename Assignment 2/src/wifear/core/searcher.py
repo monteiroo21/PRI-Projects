@@ -7,6 +7,7 @@ import time
 import os
 from typing import Dict, List, Tuple
 from functools import lru_cache
+import torch
 
 from sentence_transformers import CrossEncoder
 from wifear.core.tokenizer import PortugueseTokenizer
@@ -159,18 +160,32 @@ class SearchEngine:
 
     def neural_search(self, query_text: str, top_k: int = 10, candidates_k: int = 50) -> List[dict]:
         if not self.reranker:
+            print("[WARN] Neural Reranker not loaded. Falling back to BM25.")
             return self.query(query_text, top_k)
             
         candidates = self.query(query_text, top_k=candidates_k)
-        if not candidates: return []
+        
+        if not candidates:
+            return []
+        
+        model_inputs = []
+        for doc in candidates:
+            title = doc.get('title', '')
+            desc = doc.get('description', '')
+            if title is None: title = ""
+            if desc is None: desc = ""
+            
+            doc_text = f"{title}. {desc}".strip()
+            model_inputs.append([query_text, doc_text])
 
-        model_inputs = [[query_text, f"{doc['title']} {doc['description']}"] for doc in candidates]
-        neural_scores = self.reranker.predict(model_inputs)
+        neural_scores = self.reranker.predict(model_inputs, batch_size=16, show_progress_bar=False)
 
         for i, doc in enumerate(candidates):
             doc['score'] = float(neural_scores[i])
+            doc['rerank_score'] = float(neural_scores[i])
 
         candidates.sort(key=lambda x: x['score'], reverse=True)
+        
         return candidates[:top_k]
 
     def close(self):
