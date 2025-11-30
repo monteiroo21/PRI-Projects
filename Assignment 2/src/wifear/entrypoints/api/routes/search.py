@@ -24,7 +24,7 @@ def search(query: str, num_results: int = 10) -> SearchResponse:
         Document(
             id=r["id"],
             title=r.get("title", f"Doc {r['id']}"),
-            content=r.get("description", "")[:400],
+            content=r.get("description", "")[:1000],
         )
         for r in results
     ]
@@ -43,7 +43,7 @@ def search_like(doc_id: int, num_results: int = 10) -> SearchResponse:
             Document(
                 id=d_id,
                 title=meta.get("title", f"Doc {d_id}"),
-                content=meta.get("description", "")[:400],
+                content=meta.get("description", "")[:1000],
             )
         )
 
