@@ -8,6 +8,7 @@ from typing import Dict, List, Tuple
 import os
 
 import numpy as np
+from sentence_transformers import CrossEncoder
 from wifear.core.tokenizer import PortugueseTokenizer
 
 
@@ -26,6 +27,7 @@ class SearchEngine:
         docstore_path: str | None = None,
         k1: float = 1.2,
         b: float = 0.75,
+        use_neural: bool = True
     ):
         """
         Initialize the search engine by connecting to the SQLite database,
@@ -42,6 +44,14 @@ class SearchEngine:
         self.k1 = k1
         self.b = b
 
+        # Initialize reranker
+        self.reranker = None
+        if use_neural:
+            print("[INFO] Loading Neural Reranker model (this may take a moment)...")
+            # Load pre-trained cross-encoder model
+            self.reranker = CrossEncoder('cross-encoder/mmarco-mMiniLMv2-L12-H384-v1')
+            print("[INFO] Neural Reranker model loaded.")
+
         print(f"[INFO] Connecting to SQLite index at {db_path}...")
         self.conn = sqlite3.connect(db_path)
         self.cur = self.conn.cursor()
@@ -53,11 +63,7 @@ class SearchEngine:
         print("[INFO] Loading entire inverted index into memory...")
         self.index: Dict[str, Dict[int, List[int]]] = {}
         self.cur.execute("SELECT term, postings FROM inverted_index")
-        # for term, postings_json in self.cur.fetchall():
-        #     try:
-        #         self.index[term] = json.loads(postings_json)
-        #     except Exception:
-        #         continue
+
         for term, postings_json in self.cur.fetchall():
             try:
                 postings = json.loads(postings_json)
@@ -293,10 +299,53 @@ class SearchEngine:
         """Compatibility method (DB already closed)."""
         print("[INFO] Search engine closed (in-memory).")
 
+    # -------------------------------------------------------------------------
+    # Neural Reranking Methods
+    # -------------------------------------------------------------------------
 
-# -------------------------------------------------------------------------
-# Example usage
-# -------------------------------------------------------------------------
+    def neural_search(self, query_text: str, top_k: int = 10, candidates_k: int = 50) -> List[dict]:
+        """
+        Two-stage retrieval:
+        1. Retrieve top-N candidates using BM25.
+        2. Rerank them using a Cross-Encoder Neural Model.
+        """
+        if self.reranker is None:
+            print("[ERROR] Neural model not loaded. Initialized with use_neural=False?")
+            return self.query(query_text, top_k)
+
+        # 1. RETRIEVE: Get more candidates than needed (e.g., 50) using BM25
+        # We fetch more because BM25 might have put the best semantic match in position 40.
+        candidates = self.query(query_text, top_k=candidates_k)
+
+        if not candidates:
+            return []
+
+        # 2. PREPARE INPUT: The Cross-Encoder needs pairs of (Query, Document Text)
+        model_inputs = []
+        for doc in candidates:
+            # We combine Title + Description to give the model context
+            # Assuming 'description' holds the snippet/content. 
+            # If you have full text in docstore, use that instead.
+            doc_text = f"{doc['title']} {doc['description']}"
+            model_inputs.append([query_text, doc_text])
+
+        # 3. RERANK: Predict scores (logits)
+        # This returns a list of float scores, one for each pair
+        neural_scores = self.reranker.predict(model_inputs)
+
+        # 4. UPDATE & SORT
+        for i, doc in enumerate(candidates):
+            # Save original score just in case
+            doc['bm25_score'] = doc['score']
+            # Update with neural score
+            doc['score'] = float(neural_scores[i])
+
+        # Sort descending by the NEW neural score
+        candidates.sort(key=lambda x: x['score'], reverse=True)
+
+        # Return only the requested top_k
+        return candidates[:top_k]
+
 
 if __name__ == "__main__":
     tokenizer = PortugueseTokenizer(min_len=3)
@@ -330,5 +379,11 @@ if __name__ == "__main__":
 
     else:
         print("[ERROR] No documents returned by the base query.")
+
+    # Neural reranking
+    print("\n\n Neural reranking:")
+    results_neural = engine.neural_search(query_text, top_k=5, candidates_k=50)
+    for i, doc in enumerate(results_neural):
+        print(f"  {i+1}. {doc['title']} (Neural Score: {doc['score']:.4f})")
 
     engine.close()

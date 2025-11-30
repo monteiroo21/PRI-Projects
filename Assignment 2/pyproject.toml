@@ -16,6 +16,8 @@ dependencies = [
     "psutil>=7.0.0",
     "pandas>=2.3.3",
     "nltk>=3.9.2",
+    "sentence-transformers>=5.1.2",
+    "ijson>=3.4.0.post0",
 ]
 
 [dependency-groups]
