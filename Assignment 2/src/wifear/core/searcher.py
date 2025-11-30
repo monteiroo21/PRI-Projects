@@ -189,32 +189,42 @@ class SearchEngine:
     #     return candidates[:top_k]
 
     def neural_search(self, query_text: str, top_k: int = 10, candidates_k: int = 50) -> List[dict]:
+        """
+        Performs a two-stage retrieval:
+        - Retrieval: Fetches top-K candidates using BM25.
+        - Reranking: Re-orders candidates using a Cross-Encoder with Max-Passage pooling.
+           This handles long documents by splitting them into segments and keeping the highest score.
+        """
         if not self.reranker:
             print("[WARN] Neural Reranker not loaded. Falling back to BM25.")
             return self.query(query_text, top_k)
             
-        # BM25 candidates
+        # Retrieve initial candidates using BM25
         candidates = self.query(query_text, top_k=candidates_k)
+
         if not candidates:
             return []
         
-        # Pairs to score
+        # Prepare pairs to score
         pairs_to_score = []
         pair_to_doc_map = [] 
 
-        # Get pairs
+        # Segment documents into sentences
+        # Instead of truncating documents, we split them into sentences
+        # This handles long documents by splitting them into segments and keeping the highest score
         for doc_idx, doc in enumerate(candidates):
             title = doc.get('title', '')
             desc = doc.get('description', '')
             full_text = f"{title}. {desc}"
             
-            # Get sentences
+            # Simple sentence splitting
             sentences = [s.strip() for s in full_text.split('.') if len(s.strip()) > 10]
             
-            # If no sentences, use full text
+            # If text is too short, use the full text
             if not sentences:
                 sentences = [full_text]
             
+            # Limit to the first 15 sentences to balance performance and recall
             for sent in sentences[:15]: 
                 pairs_to_score.append([query_text, sent])
                 pair_to_doc_map.append(doc_idx)
@@ -225,22 +235,25 @@ class SearchEngine:
         # Get reranked scores
         all_scores = self.reranker.predict(pairs_to_score, batch_size=32, show_progress_bar=True)
 
+        # Find the best snippet for each document
         doc_max_scores = {i: -999.0 for i in range(len(candidates))}
         doc_best_snippet = {i: "" for i in range(len(candidates))}
 
         # Update scores
         for i, score in enumerate(all_scores):
             doc_idx = pair_to_doc_map[i]
+            # Update the best snippet for each document
             if score > doc_max_scores[doc_idx]:
                 doc_max_scores[doc_idx] = float(score)
                 doc_best_snippet[doc_idx] = pairs_to_score[i][1]
 
+        # Update the candidates with the best snippets
         for i, doc in enumerate(candidates):
             doc['score'] = doc_max_scores[i]
             doc['rerank_score'] = doc_max_scores[i]
             doc['best_snippet'] = doc_best_snippet[i] 
 
-        # Sort
+        # Sort by rerank score
         candidates.sort(key=lambda x: x['score'], reverse=True)
         
         return candidates[:top_k]
