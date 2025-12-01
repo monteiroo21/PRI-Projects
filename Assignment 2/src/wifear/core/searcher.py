@@ -7,10 +7,25 @@ import time
 import os
 from typing import Dict, List, Tuple
 from functools import lru_cache
+from pathlib import Path
 import torch
 
+from dotenv import load_dotenv 
+import google.generativeai as genai
 from sentence_transformers import CrossEncoder
 from wifear.core.tokenizer import PortugueseTokenizer
+
+try:
+    load_dotenv()
+    if not os.getenv("GOOGLE_API_KEY"):
+        current_file = Path(__file__).resolve()
+        project_root = current_file.parents[3] 
+        env_path = project_root / '.env'
+        if env_path.exists():
+            load_dotenv(dotenv_path=env_path)
+            print(f"[INFO] .env carregado de: {env_path}")
+except Exception:
+    pass
 
 class SearchEngine:
     def __init__(
@@ -32,6 +47,19 @@ class SearchEngine:
         if use_neural:
             print("[INFO] Loading Neural Reranker...")
             self.reranker = CrossEncoder('cross-encoder/mmarco-mMiniLMv2-L12-H384-v1')
+
+        self.llm_model = None
+        api_key = os.getenv("GOOGLE_API_KEY")
+        if api_key:
+            try:
+                genai.configure(api_key=api_key)
+                model_name = 'gemini-2.0-flash'
+                print(f"[INFO] Initialized Gemini using model: '{model_name}'")
+                self.llm_model = genai.GenerativeModel(model_name)
+            except Exception as e:
+                print(f"[ERROR] Failed to init Gemini: {e}")
+        else:
+            print("[WARN] GOOGLE_API_KEY not found in .env. RAG disabled.")
 
         print(f"[INFO] Connecting to DB at {db_path}...")
         self.conn = sqlite3.connect(db_path, check_same_thread=False)
@@ -258,6 +286,35 @@ class SearchEngine:
         
         return candidates[:top_k]
 
+    def generate_answer(self, query_text: str, relevant_docs: List[dict]) -> str:
+        """
+        Generate an answer using Gemini based on the best snippet found.
+        """
+        if not self.llm_model:
+            return "Error: Gemini API not configured."
+        
+        if not relevant_docs:
+            return "Não encontrei informações relevantes."
+
+        top_doc = relevant_docs[0]
+        # Use the 'best_snippet' of neural_search or the full description
+        context = top_doc.get('best_snippet') or top_doc.get('description', '')
+        title = top_doc.get('title', 'Documento')
+
+        prompt = (
+            f"És um assistente útil. Responde à pergunta do utilizador "
+            f"usando APENAS o seguinte contexto.\n\n"
+            f"Contexto (de '{title}'):\n{context}\n\n"
+            f"Pergunta: {query_text}\n\n"
+            f"Resposta:"
+        )
+
+        try:
+            response = self.llm_model.generate_content(prompt)
+            return response.text.strip()
+        except Exception as e:
+            return f"Error in response generation: {e}"
+
     def close(self):
         self.conn.close()
 
@@ -294,9 +351,15 @@ if __name__ == "__main__":
         print("[ERROR] No documents returned by the base query.")
 
     # Neural reranking
-    print("\n\n Neural reranking:")
+    print(f"\n--- Neural Search: '{query_text}' ---")
     results_neural = engine.neural_search(query_text, top_k=5, candidates_k=50)
     for i, doc in enumerate(results_neural):
         print(f"  {i+1}. {doc['title']} (Neural Score: {doc['score']:.4f})")
+
+    # Answer Generation (RAG)
+    if results:
+        print(f"\n--- Generating Answer (Gemini): '{query_text}' ---")
+        answer = engine.generate_answer(query_text, results)
+        print(answer)
 
     engine.close()

@@ -18,6 +18,8 @@ dependencies = [
     "nltk>=3.9.2",
     "sentence-transformers>=5.1.2",
     "ijson>=3.4.0.post0",
+    "google-generativeai>=0.7.0",
+    "python-dotenv>=1.1.1",
 ]
 
 [dependency-groups]
