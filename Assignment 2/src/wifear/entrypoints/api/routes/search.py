@@ -1,24 +1,23 @@
 """Search endpoints."""
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter
+
 from wifear.core.model import Document
-from wifear.entrypoints.api.model import SearchResponse
 from wifear.core.tokenizer import PortugueseTokenizer
-from wifear.core.searcher import SearchEngine
+from wifear.entrypoints.api.model import SearchResponse
+
+from ....core.searcher import SearchEngine
 
 router = APIRouter(tags=["search engine"])
 
 tokenizer = PortugueseTokenizer(min_len=3)
-engine = SearchEngine(
-    db_path="index.db",
-    tokenizer=tokenizer,
-    docstore_path="data/docstore.jsonl"
-)
+engine = SearchEngine(db_path="index.db", tokenizer=tokenizer, docstore_path="data/docstore.jsonl")
+
 
 @router.get("/search", response_model=SearchResponse)
 def search(query: str, num_results: int = 10) -> SearchResponse:
     """Search for documents matching the given query."""
-    results = engine.query(query, top_k=num_results)
+    results = engine.neural_search(query, top_k=num_results, candidates_k=50)
 
     docs = [
         Document(
@@ -30,6 +29,7 @@ def search(query: str, num_results: int = 10) -> SearchResponse:
     ]
 
     return SearchResponse(results=docs)
+
 
 @router.get("/search_like", response_model=SearchResponse)
 def search_like(doc_id: int, num_results: int = 10) -> SearchResponse:
