@@ -46,7 +46,7 @@ class SearchEngine:
         self.reranker = None
         if use_neural:
             print("[INFO] Loading Neural Reranker...")
-            self.reranker = CrossEncoder("unicamp-dl/mMiniLM-L6-v2-pt-v2")
+            self.reranker = CrossEncoder("unicamp-dl/mMiniLM-L6-v2-pt-v2", max_length=512)
 
         self.llm_model = None
         api_key = os.getenv("GOOGLE_API_KEY")
