@@ -199,7 +199,7 @@ class SearchEngine:
         """Performs a two-stage retrieval:
 
         - Retrieval: Fetches top-K candidates using BM25.
-        - Reranking: Re-orders candidates using a Cross-Encoder with Max-Passage pooling.
+        - Reranking: Re-orders candidates using a Cross-Encoder model.
         """
 
         if not self.reranker:
