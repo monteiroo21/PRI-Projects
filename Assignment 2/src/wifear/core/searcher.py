@@ -238,6 +238,12 @@ class SearchEngine:
         # Sort by rerank score
         candidates.sort(key=lambda x: x["score"], reverse=True)
 
+        for i in range(top_k):
+            print(
+                f"Reranked {i+1}: {candidates[i]['title']}, "
+                + f"Neural Score: {candidates[i]['score']:.4f}"
+            )
+
         return candidates[:top_k]
 
     def generate_answer(self, query_text: str, relevant_docs: list[dict]) -> str:
@@ -250,7 +256,7 @@ class SearchEngine:
 
         top_doc = relevant_docs[0]
         # Use the 'best_snippet' of neural_search or the full description
-        context = top_doc.get("best_snippet") or top_doc.get("description", "")
+        context = top_doc.get("description", "")
         title = top_doc.get("title", "Documento")
 
         prompt = (
