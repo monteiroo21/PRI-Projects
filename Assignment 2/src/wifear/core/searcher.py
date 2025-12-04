@@ -217,15 +217,13 @@ class SearchEngine:
 
         # Prepare pairs to score
         pairs_to_score = []
-        pair_to_doc_map = []
 
-        for doc_idx, doc in enumerate(candidates):
+        for doc in candidates:
             title = doc.get("title", "")
             desc = doc.get("description", "")
+            # Map pair index to document index
             full_text = f"{title}. {desc}"
-
             pairs_to_score.append([query_text, full_text])
-            pair_to_doc_map.append(doc_idx)
 
         if not pairs_to_score:
             return candidates[:top_k]
@@ -233,23 +231,9 @@ class SearchEngine:
         # Get reranked scores
         all_scores = self.reranker.predict(pairs_to_score, batch_size=64, show_progress_bar=True)
 
-        # Find the best snippet for each document
-        doc_max_scores = {i: -999.0 for i in range(len(candidates))}
-        doc_best_snippet = {i: "" for i in range(len(candidates))}
-
-        # Update scores
-        for i, score in enumerate(all_scores):
-            doc_idx = pair_to_doc_map[i]
-            # Update the best snippet for each document
-            if score > doc_max_scores[doc_idx]:
-                doc_max_scores[doc_idx] = float(score)
-                doc_best_snippet[doc_idx] = pairs_to_score[i][1]
-
         # Update the candidates with the best snippets
         for i, doc in enumerate(candidates):
-            doc["score"] = doc_max_scores[i]
-            doc["rerank_score"] = doc_max_scores[i]
-            doc["best_snippet"] = doc_best_snippet[i]
+            doc["score"] = float(all_scores[i])
 
         # Sort by rerank score
         candidates.sort(key=lambda x: x["score"], reverse=True)
