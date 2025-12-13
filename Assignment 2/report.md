@@ -1,0 +1,2 @@
+# Answer Generation
+Embora o enunciado mencione 'Top-1', optámos por injetar os Top-5 documentos no contexto do LLM. Esta decisão de design reduz o risco de 'Single Point of Failure' (onde o primeiro documento é relevante mas não contém a resposta exata) e permite que o modelo sintetize informações complementares de múltiplas fontes, resultando numa resposta mais rica para o utilizador.

@@ -53,7 +53,7 @@ class SearchEngine:
         if api_key:
             try:
                 genai.configure(api_key=api_key)
-                model_name = "gemini-2.0-flash"
+                model_name = "gemini-2.5-flash"
                 print(f"[INFO] Initialized Gemini using model: '{model_name}'")
                 self.llm_model = genai.GenerativeModel(model_name)
             except Exception as e:
@@ -247,31 +247,61 @@ class SearchEngine:
         return candidates[:top_k]
 
     def generate_answer(self, query_text: str, relevant_docs: list[dict]) -> str:
-        """Generate an answer using Gemini based on the best snippet found."""
+        """
+        Generates a natural language answer based on the top 5 documents retrieved.
+        """
+
+        # Check if LLM model is initialized
         if not self.llm_model:
-            return "Error: Gemini API not configured."
+            return "Error: Gemini API is not configured or LLM model is missing."
 
+        # Check if relevant documents are provided
         if not relevant_docs:
-            return "Não encontrei informações relevantes."
+            return "Error: No relevant documents provided."
 
-        top_doc = relevant_docs[0]
-        # Use the 'best_snippet' of neural_search or the full description
-        context = top_doc.get("description", "")
-        title = top_doc.get("title", "Documento")
+        # 1. Select the top 5 documents (or fewer if there are few results)
+        top_k_context = 5
+        docs_to_use = relevant_docs[:top_k_context]
 
+        # 2. Build the context block by combining the texts of the documents
+        context_parts = []
+        for i, doc in enumerate(docs_to_use, 1):
+            title = doc.get("title", "Documento Sem Título")
+            content = doc.get("description", "")
+            
+            # Clear formatting to help the LLM distinguish between documents
+            doc_str = (
+                f"--- DOCUMENTO {i} ---\n"
+                f"Título: {title}\n"
+                f"Conteúdo: {content}\n"
+            )
+            context_parts.append(doc_str)
+
+        full_context = "\n".join(context_parts)
+
+        # 3. Build the prompt
         prompt = (
-            f"És um assistente útil. Responde à pergunta do utilizador "
-            f"usando APENAS o seguinte contexto.\n\n"
-            f"Contexto (de '{title}'):\n{context}\n\n"
-            f"Pergunta: {query_text}\n\n"
-            f"Resposta:"
+            f"És um assistente inteligente de recuperação de informação. "
+            f"O utilizador fez uma pergunta e abaixo estão os 5 documentos mais relevantes encontrados no sistema.\n"
+            f"A tua tarefa é sintetizar uma resposta completa e natural baseada APENAS nestes documentos.\n\n"
+            f"CONTEXTO (Documentos Recuperados):\n"
+            f"{full_context}\n"
+            f"---------------------------------------------------\n"
+            f"PERGUNTA DO UTILIZADOR: {query_text}\n\n"
+            f"INSTRUÇÕES:\n"
+            f"- Responde em Português de Portugal.\n"
+            f"- Usa a informação de múltiplos documentos se necessário para criar uma resposta mais completa.\n"
+            f"- Se a resposta não estiver nos documentos, diz 'A informação recuperada não contém a resposta'.\n"
+            f"- Não inventes factos que não estejam no contexto.\n\n"
+            f"RESPOSTA:"
         )
 
         try:
+            # Adjust max_output_tokens if you want shorter or longer responses
             response = self.llm_model.generate_content(prompt)
             return response.text.strip()
         except Exception as e:
-            return f"Error in response generation: {e}"
+            return f"Error generating response with LLM: {e}"
 
     def close(self):
         self.conn.close()
@@ -318,7 +348,8 @@ if __name__ == "__main__":
     # Answer Generation (RAG)
     if results:
         print(f"\n--- Generating Answer (Gemini): '{query_text}' ---")
-        answer = engine.generate_answer(query_text, results)
+        answer = engine.generate_answer(query_text, results_neural)
         print(answer)
 
     engine.close()
+    print("\nDone!")
