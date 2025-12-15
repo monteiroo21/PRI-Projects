@@ -28,6 +28,13 @@ def search(query: str, num_results: int = 10) -> SearchResponse:
         for r in results
     ]
 
+    print("Search query:", query)
+    for result in results:
+        print(
+            f"  Doc ID: {result['id']}, Score: {result['score']:.4f}, "
+            f"Snippet: {result.get('snippet', '')}"
+        )
+
     return SearchResponse(results=docs)
 
 

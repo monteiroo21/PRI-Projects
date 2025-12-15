@@ -195,109 +195,121 @@ class SearchEngine:
 
         return sorted(scores.items(), key=lambda x: x[1], reverse=True)[:top_k]
 
+    def _split_into_token_chunks(
+        self,
+        text: str,
+        max_terms: int = 480,
+        overlap: int = 64,
+    ) -> list[str]:
+        terms = self.tokenizer.tokenize(text)
+        chunks = []
+
+        start = 0
+        while start < len(terms):
+            end = start + max_terms
+            chunk_terms = terms[start:end]
+            chunk_text = " ".join(chunk_terms)
+            chunks.append(chunk_text)
+            start += max_terms - overlap
+        print(f"[DEBUG] Split text into {len(chunks)} chunks.")
+        print(f"[DEBUG] Chunks: {chunks}")
+
+        return chunks
+
     def neural_search(self, query_text: str, top_k: int = 10, candidates_k: int = 50) -> list[dict]:
-        """Performs a two-stage retrieval:
-
-        - Retrieval: Fetches top-K candidates using BM25.
-        - Reranking: Re-orders candidates using a Cross-Encoder model.
-        """
-
         if not self.reranker:
             print("[WARN] Neural Reranker not loaded. Falling back to BM25.")
             return self.query(query_text, top_k)
 
-        # Retrieve initial candidates using BM25
         candidates = self.query(query_text, top_k=candidates_k)
-
-        for i in range(top_k):
-            print(f"Candidate {i+1}: {candidates[i]['title']}, Score: {candidates[i]['score']:.4f}")
-
         if not candidates:
             return []
 
-        # Prepare pairs to score
-        pairs_to_score = []
+        pairs = []
+        pair_doc_map = []  # maps pair index -> document index
 
-        for doc in candidates:
+        doc_best_score: dict[int, float] = {}
+        doc_best_chunk: dict[int, str] = {}
+
+        for doc_idx, doc in enumerate(candidates):
             title = doc.get("title", "")
             desc = doc.get("description", "")
-            # Map pair index to document index
             full_text = f"{title}. {desc}"
-            pairs_to_score.append([query_text, full_text])
 
-        if not pairs_to_score:
+            chunks = self._split_into_token_chunks(full_text)
+
+            for chunk in chunks:
+                pairs.append([query_text, chunk])
+                pair_doc_map.append((doc_idx, chunk))
+
+        if not pairs:
             return candidates[:top_k]
 
-        # Get reranked scores
-        all_scores = self.reranker.predict(pairs_to_score, batch_size=64, show_progress_bar=True)
+        scores = self.reranker.predict(
+            pairs,
+            batch_size=32,
+            show_progress_bar=True,
+        )
 
-        # Update the candidates with the best snippets
-        for i, doc in enumerate(candidates):
-            doc["score"] = float(all_scores[i])
+        for score, (doc_idx, chunk_text) in zip(scores, pair_doc_map):
+            score = float(score)
 
-        # Sort by rerank score
+            if doc_idx not in doc_best_score or score > doc_best_score[doc_idx]:
+                doc_best_score[doc_idx] = score
+                doc_best_chunk[doc_idx] = chunk_text
+
+        for doc_idx in doc_best_score:
+            candidates[doc_idx]["score"] = doc_best_score[doc_idx]
+            candidates[doc_idx]["snippet"] = doc_best_chunk[doc_idx]
+
+        # Sort by reranked score
         candidates.sort(key=lambda x: x["score"], reverse=True)
-
-        for i in range(top_k):
-            print(
-                f"Reranked {i+1}: {candidates[i]['title']}, "
-                + f"Neural Score: {candidates[i]['score']:.4f}"
-            )
 
         return candidates[:top_k]
 
     def generate_answer(self, query_text: str, relevant_docs: list[dict]) -> str:
-        """
-        Generates a natural language answer based on the top 5 documents retrieved.
-        """
+        """Generates a natural language answer based on the top 5 documents retrieved."""
 
-        # Check if LLM model is initialized
         if not self.llm_model:
             return "Error: Gemini API is not configured or LLM model is missing."
 
-        # Check if relevant documents are provided
         if not relevant_docs:
             return "Error: No relevant documents provided."
 
-        # 1. Select the top 5 documents (or fewer if there are few results)
         top_k_context = 5
         docs_to_use = relevant_docs[:top_k_context]
 
-        # 2. Build the context block by combining the texts of the documents
         context_parts = []
         for i, doc in enumerate(docs_to_use, 1):
             title = doc.get("title", "Documento Sem Título")
             content = doc.get("description", "")
-            
-            # Clear formatting to help the LLM distinguish between documents
-            doc_str = (
-                f"--- DOCUMENTO {i} ---\n"
-                f"Título: {title}\n"
-                f"Conteúdo: {content}\n"
-            )
+
+            doc_str = f"--- DOCUMENTO {i} ---\n" f"Título: {title}\n" f"Conteúdo: {content}\n"
             context_parts.append(doc_str)
 
         full_context = "\n".join(context_parts)
 
-        # 3. Build the prompt
         prompt = (
-            f"És um assistente inteligente de recuperação de informação. "
-            f"O utilizador fez uma pergunta e abaixo estão os 5 documentos mais relevantes encontrados no sistema.\n"
-            f"A tua tarefa é sintetizar uma resposta completa e natural baseada APENAS nestes documentos.\n\n"
+            "És um assistente inteligente de recuperação de informação. "
+            "O utilizador fez uma pergunta e abaixo estão os 5 documentos mais "
+            "relevantes encontrados no sistema.\n"
+            "A tua tarefa é sintetizar uma resposta completa e natural baseada "
+            + f"APENAS nestes documentos.\n\n"
             f"CONTEXTO (Documentos Recuperados):\n"
             f"{full_context}\n"
             f"---------------------------------------------------\n"
             f"PERGUNTA DO UTILIZADOR: {query_text}\n\n"
             f"INSTRUÇÕES:\n"
             f"- Responde em Português de Portugal.\n"
-            f"- Usa a informação de múltiplos documentos se necessário para criar uma resposta mais completa.\n"
-            f"- Se a resposta não estiver nos documentos, diz 'A informação recuperada não contém a resposta'.\n"
-            f"- Não inventes factos que não estejam no contexto.\n\n"
-            f"RESPOSTA:"
+            f"- Usa a informação de múltiplos documentos se necessário para criar "
+            f"uma resposta mais completa.\n"
+            f"- Se a resposta não estiver nos documentos, diz 'A informação recuperada "
+            + "não contém a resposta'.\n"
+            "- Não inventes factos que não estejam no contexto.\n\n"
+            "RESPOSTA:"
         )
 
         try:
-            # Adjust max_output_tokens if you want shorter or longer responses
             response = self.llm_model.generate_content(prompt)
             return response.text.strip()
         except Exception as e:
@@ -317,7 +329,7 @@ if __name__ == "__main__":
         b=0.75,
     )
 
-    query_text = "freguesia Amares"
+    query_text = "Qual a capital de Portugal?"
     results = engine.query(query_text, top_k=10)
     print("\n Search Results:")
     for doc in results:
@@ -344,6 +356,7 @@ if __name__ == "__main__":
     results_neural = engine.neural_search(query_text, top_k=5, candidates_k=50)
     for i, doc in enumerate(results_neural):
         print(f"  {i+1}. {doc['title']} (Neural Score: {doc['score']:.4f})")
+        print(f"     Snippet: {doc.get('snippet', '')}")
 
     # Answer Generation (RAG)
     if results:
