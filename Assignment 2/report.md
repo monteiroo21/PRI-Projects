@@ -143,3 +143,65 @@ Beyond capacity, a decisive factor was the **API Rate Limits** (Requests Per Min
 
 **Conclusion:**
 For a search engine, **availability is a quality metric**. Using a "Pro" model would force users to wait significantly longer for results and hit rate limits after just a few queries. **Gemini 2.5 Flash** offers the optimal balance: it possesses the **same context capacity** as the Pro models but delivers it with the **high throughput and low latency** required for a real-time user experience.
+
+---
+
+# 3. Further AI Enhancement A: Semantic Snippet Extraction
+
+To achieve the highest grade criteria regarding **AI Enhancements**, we moved beyond static document descriptions. Standard search engines often display the first few lines of a document, which in encyclopedic articles (like Wikipedia) are often generic introductions or navigational metadata that do not explain *why* the document is relevant to the specific user query.
+
+To solve this, we implemented a **Dynamic Semantic Snippet** mechanism using the Neural Reranker.
+
+### 3.1 Implementation Logic
+The method `extract_best_snippet_neural` in `searcher.py` performs the following steps:
+
+1.  **Segmentation:** The full document text is split into logical paragraph units using a custom delimiter strategy (`_split_into_paragraphs`).
+2.  **Cross-Encoder Reuse:** We efficiently reuse the loaded **Cross-Encoder** model. Instead of scoring the whole document, we construct pairs of `[User Query, Paragraph]` for the text segments.
+3.  **Selection:** The model predicts a relevance score for each paragraph.
+4.  **Extraction:** The system returns the single paragraph with the highest semantic similarity score.
+
+### 3.2 Impact on User Experience
+This feature ensures that the user sees the exact passage that answers their question directly on the results list, rather than a generic abstract. This significantly reduces the cognitive load required to evaluate search results.
+
+---
+
+# 4. Further AI Enhancement B: AI-Powered Metadata (Auto-Tagging)
+
+As a second AI enhancement, we leveraged the **Zero-Shot capabilities** of the LLM (Gemini 2.5 Flash) to generate structured metadata from unstructured text on the fly.
+
+### 4.1 Implementation Logic
+The `generate_document_tags` method analyzes the document content to produce categorization labels.
+
+1.  **Optimization & Relevance Strategy:** We deliberately truncate the input to the **first 2,000 characters**.
+    *   **Token Efficiency:** This drastically reduces token consumption, preventing the exhaustion of API quotas on long-tail content.
+    *   **Structural Sufficiency:** Encyclopedic articles (like Wikipedia) follow an "inverted pyramid" structure, where the introductory section defines the subject matter. Therefore, the beginning of the document provides sufficient context for the model to extract accurate tags and categories without needing to process the full text.
+
+2.  **Structured Prompting:** We use a strict prompt to force the LLM into a classification role, requiring it to output:
+    *   **Main Category:** A high-level classification (e.g., "History", "Science", "Biography").
+    *   **Keywords:** A list of 5 specific tags relevant to the content.
+
+3.  **Parsing:** The system programmatically parses the LLM's text output into a JSON object (`{"category": "...", "tags": [...]}`).
+
+### 4.2 UI Integration & Utility
+This feature is integrated directly into the **Document Details view** of our web interface. When a user clicks to view a specific document, the system calls the LLM in real-time to generate these labels. This provides the user with an immediate high-level understanding of the document's topics without needing to read the entire text, facilitating faster information filtering.
+
+---
+
+# Conclusion
+
+This project successfully achieved the primary objective of Assignment 2: upgrading a classical Information Retrieval system into a modern **Semantic Search Engine**. By transitioning from a purely lexical approach (BM25) to a hybrid neural architecture, the system can now bridge the "vocabulary gap"—understanding user intent even when query terms do not explicitly match document tokens.
+
+Key achievements and architectural insights include:
+
+1.  **The Power of Two-Stage Retrieval:**
+    We demonstrated that replacing BM25 entirely is not necessary to achieve high precision. Instead, using BM25 as an efficient first-stage filter, followed by a **Neural Reranker (`Cross-Encoder`)**, provides the best balance between speed and accuracy. The implementation of the **`unicamp-dl/mMiniLM-L6-v2-pt-v2`** model allowed us to capture semantic nuances in Portuguese (such as synonyms and polysemy) that the previous implementation missed, significantly improving the quality of the Top-10 results.
+
+2.  **RAG as a Paradigm Shift:**
+    The integration of **Retrieval-Augmented Generation (RAG)** fundamentally changed the system's utility. By injecting the **Top-5 reranked documents** into the **Gemini 2.5 Flash** context, we transformed the user experience from simply "finding documents" to "getting answers." The engineering decision to use the Flash model proved critical: it allowed us to maintain the large context window (1M tokens) required for multi-document reasoning while ensuring the high throughput (RPM) necessary for a responsive search interface.
+
+3.  **AI Beyond Ranking:**
+    Through the "Further AI Enhancements," we showed that LLMs and Cross-Encoders can improve the User Interface (UI) itself.
+    *   **Semantic Snippets** solved the issue of generic document descriptions by dynamically extracting the most relevant paragraph.
+    *   **Auto-Tagging** demonstrated the power of Zero-Shot classification, organizing unstructured text into structured categories without manual intervention.
+
+In summary, the system has evolved from a simple term-matching script into a robust, AI-powered retrieval pipeline. The chosen models—optimized for efficiency rather than raw size—demonstrate a realistic engineering approach to building scalable Search & QA systems.
