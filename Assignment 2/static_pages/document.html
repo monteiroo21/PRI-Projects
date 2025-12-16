@@ -165,6 +165,62 @@
         color: #4b5563;
         border: 1px solid #e5e7eb;
       }
+      .ai-tags-section {
+        margin-bottom: 2rem;
+        animation: fadeIn 0.8s ease-in;
+      }
+
+      .tags-container {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.8rem;
+        margin-top: 0.5rem;
+      }
+
+      .ai-label {
+        font-size: 0.85rem;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+        padding: 0.4rem 0.8rem;
+        border-radius: 20px;
+        display: inline-flex;
+        align-items: center;
+        gap: 0.4rem;
+        box-shadow: 0 2px 5px rgba(0,0,0,0.05);
+      }
+
+      .label-category {
+        background: linear-gradient(135deg, #FF9A9E 0%, #FECFEF 100%);
+        color: #990033;
+      }
+
+      .label-keyword {
+        background: linear-gradient(135deg, #a18cd1 0%, #fbc2eb 100%);
+        color: #4a1c68;
+      }
+
+      .label-sentiment {
+        background: #e0e7ff;
+        color: #3730a3;
+        border: 1px solid #c7d2fe;
+      }
+
+      .tags-loading {
+        font-size: 0.9rem;
+        color: #718096;
+        font-style: italic;
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+      }
+      
+      .tags-loading::after {
+        content: "✨";
+        animation: spin 2s infinite linear;
+      }
+      
+      @keyframes spin { 100% { transform: rotate(360deg); } }
     </style>
   </head>
   <body>
@@ -187,6 +243,9 @@
           <div class="doc-meta">
             <span class="badge" id="docId"></span>
             <span class="badge" id="docDate"></span>
+          </div>
+          <div id="aiTagsArea" class="ai-tags-section">
+             <div class="tags-loading">Generating AI Labels (Gemini)...</div>
           </div>
           <div class="doc-body" id="docContent"></div>
         </div>
@@ -250,10 +309,42 @@
           // 2. Load Similar Documents (background)
           loadSimilarDocs(docId);
 
+          loadAiTags(docId);
+
         } catch (error) {
           showError(error.message);
         }
       });
+
+      async function loadAiTags(docId) {
+        const container = document.getElementById("aiTagsArea");
+        
+        try {
+          const response = await fetch(`${API_BASE_URL}/documents/${docId}/ai_tags`);
+          if (!response.ok) throw new Error("Failed to load tags");
+          
+          const data = await response.json();
+          
+          let html = '<div class="tags-container">';
+          
+          if (data.category && data.category !== "Desconhecido") {
+            html += `<span class="ai-label label-category" title="AI Categorization">${escapeHtml(data.category)}</span>`;
+          }
+
+          if (data.tags && data.tags.length > 0) {
+            data.tags.forEach(tag => {
+              html += `<span class="ai-label label-keyword">#${escapeHtml(tag)}</span>`;
+            });
+          }
+          
+          html += '</div>';
+          container.innerHTML = html;
+
+        } catch (e) {
+          console.error(e);
+          container.style.display = 'none';
+        }
+      }
 
       function renderDocument(doc) {
         document.getElementById("loading").style.display = "none";

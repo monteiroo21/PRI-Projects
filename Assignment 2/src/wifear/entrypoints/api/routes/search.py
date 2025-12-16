@@ -4,7 +4,7 @@ from fastapi import APIRouter, HTTPException
 
 from wifear.core.model import Document
 from wifear.core.tokenizer import PortugueseTokenizer
-from wifear.entrypoints.api.model import SearchDocumentResult, SearchResponse
+from wifear.entrypoints.api.model import SearchDocumentResult, SearchResponse, DocumentTagsResponse
 
 from ....core.searcher import SearchEngine
 
@@ -71,3 +71,22 @@ def get_document_details(doc_id: int):
         raise HTTPException(status_code=404, detail="Document not found")
     
     return doc
+
+@router.get("/documents/{doc_id}/ai_tags", response_model=DocumentTagsResponse)
+def get_document_ai_tags(doc_id: int):
+    """Generates AI tags for a specific document on-the-fly."""
+    doc = engine.docstore.get(doc_id)
+    if not doc:
+        raise HTTPException(status_code=404, detail="Document not found")
+    
+    text_content = doc.get("description") or doc.get("text") or doc.get("content") or ""
+    
+    if not text_content:
+         return DocumentTagsResponse(category="Desconhecido", tags=[])
+
+    tags_data = engine.generate_document_tags(text_content)
+    
+    return DocumentTagsResponse(
+        category=tags_data.get("category", "Geral"),
+        tags=tags_data.get("tags", []),
+    )

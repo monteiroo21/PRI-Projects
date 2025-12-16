@@ -1,3 +1,4 @@
+from typing import List
 from pydantic import BaseModel
 
 from wifear.core.model import Document
@@ -17,3 +18,7 @@ class SearchDocumentResult(Document):
 class SearchResponse(BaseModel):
     results: list[SearchDocumentResult]
     answer: str | None = None
+
+class DocumentTagsResponse(BaseModel):
+    category: str
+    tags: List[str]
