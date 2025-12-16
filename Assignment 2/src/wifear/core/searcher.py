@@ -265,6 +265,9 @@ class SearchEngine:
         pair_doc_map = []  # maps pair index -> document index
 
         for doc_idx, doc in enumerate(candidates):
+            # Store initial BM25 score
+            doc["initial_score"] = doc["score"]
+
             title = doc.get("title", "")
             desc = doc.get("description", "")
             full_text = f"{title}. {desc}"
@@ -349,6 +352,46 @@ class SearchEngine:
             return response.text.strip()
         except Exception as e:
             return f"Error generating response with LLM: {e}"
+
+    def generate_document_tags(self, doc_text: str) -> dict:
+        """
+        Use the LLM to generate semantic tags, categories and sentiment for the document.
+        """
+        if not self.llm_model:
+            return {}
+
+        # Limit the text to avoid token overflow and be faster
+        short_text = doc_text[:2000]
+
+        prompt = (
+            f"Analisa o seguinte texto de documento:\n'{short_text}'\n\n"
+            "Gera uma análise estruturada com os seguintes campos:\n"
+            "1. Categoria Principal (Ex: Política, Desporto, Saúde, Tecnologia...)\n"
+            "2. 5 Tags/Palavras-chave mais relevantes (separadas por vírgula)\n\n"
+            "Formato de resposta ESTRITO (apenas este texto, sem markdown):\n"
+            "CATEGORIA: [Categoria]\n"
+            "TAGS: [Tag1], [Tag2], [Tag3], [Tag4], [Tag5]"
+        )
+
+        try:
+            response = self.llm_model.generate_content(prompt)
+            text = response.text.strip()
+            
+            # Manual parsing of the response to be robust
+            result = {"category": "Geral", "tags": []}
+            
+            lines = text.split('\n')
+            for line in lines:
+                if line.startswith("CATEGORIA:"):
+                    result["category"] = line.replace("CATEGORIA:", "").strip()
+                elif line.startswith("TAGS:"):
+                    tags_raw = line.replace("TAGS:", "").strip()
+                    result["tags"] = [t.strip() for t in tags_raw.split(',')]
+            
+            return result
+        except Exception as e:
+            print(f"[ERROR] Gemini Tagging: {e}")
+            return {}
 
     def close(self):
         self.conn.close()

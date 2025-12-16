@@ -33,6 +33,15 @@ async def serve_index():
     return {"message": "Static page not found. Please ensure static_pages/index.html exists."}
 
 
+@app.get("/document.html")
+async def serve_document():
+    """Serve the document details page."""
+    static_file = STATIC_DIR / "document.html"
+    if static_file.exists():
+        return FileResponse(static_file)
+    return {"message": "Static page not found. Please ensure static_pages/document.html exists."}
+
+
 # Mount static files
 if STATIC_DIR.exists():
     app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")

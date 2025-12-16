@@ -1,10 +1,10 @@
 """Search endpoints."""
 
-from fastapi import APIRouter
+from fastapi import APIRouter, HTTPException
 
 from wifear.core.model import Document
 from wifear.core.tokenizer import PortugueseTokenizer
-from wifear.entrypoints.api.model import SearchResponse
+from wifear.entrypoints.api.model import SearchDocumentResult, SearchResponse, DocumentTagsResponse
 
 from ....core.searcher import SearchEngine
 
@@ -19,11 +19,16 @@ def search(query: str, num_results: int = 10) -> SearchResponse:
     """Search for documents matching the given query."""
     results = engine.neural_search(query, top_k=num_results, candidates_k=50)
 
+    generated_answer = engine.generate_answer(query, results)
+
     docs = [
-        Document(
+        SearchDocumentResult(
             id=r["id"],
             title=r.get("title", f"Doc {r['id']}"),
             content=r.get("description", "")[:1000],
+            score=r["score"],
+            bm25_score=r.get("initial_score"),
+            snippet=r.get("snippet"),
         )
         for r in results
     ]
@@ -35,7 +40,7 @@ def search(query: str, num_results: int = 10) -> SearchResponse:
             f"Snippet: {result.get('snippet', '')}"
         )
 
-    return SearchResponse(results=docs)
+    return SearchResponse(results=docs, answer=generated_answer)
 
 
 @router.get("/search_like", response_model=SearchResponse)
@@ -47,11 +52,41 @@ def search_like(doc_id: int, num_results: int = 10) -> SearchResponse:
     for d_id, score in similar_results:
         meta = engine.docstore.get(d_id, {})
         docs.append(
-            Document(
+            SearchDocumentResult(
                 id=d_id,
                 title=meta.get("title", f"Doc {d_id}"),
                 content=meta.get("description", "")[:1000],
+                score=score,
             )
         )
 
     return SearchResponse(results=docs)
+
+@router.get("/documents/{doc_id}")
+def get_document_details(doc_id: int):
+    """Return document details by ID."""
+    doc = engine.docstore.get(doc_id)
+    
+    if not doc:
+        raise HTTPException(status_code=404, detail="Document not found")
+    
+    return doc
+
+@router.get("/documents/{doc_id}/ai_tags", response_model=DocumentTagsResponse)
+def get_document_ai_tags(doc_id: int):
+    """Generates AI tags for a specific document on-the-fly."""
+    doc = engine.docstore.get(doc_id)
+    if not doc:
+        raise HTTPException(status_code=404, detail="Document not found")
+    
+    text_content = doc.get("description") or doc.get("text") or doc.get("content") or ""
+    
+    if not text_content:
+         return DocumentTagsResponse(category="Desconhecido", tags=[])
+
+    tags_data = engine.generate_document_tags(text_content)
+    
+    return DocumentTagsResponse(
+        category=tags_data.get("category", "Geral"),
+        tags=tags_data.get("tags", []),
+    )
