@@ -2,11 +2,10 @@
 
 from fastapi import APIRouter, HTTPException
 
-from wifear.core.model import Document
 from wifear.core.tokenizer import PortugueseTokenizer
-from wifear.entrypoints.api.model import SearchDocumentResult, SearchResponse, DocumentTagsResponse
 
 from ....core.searcher import SearchEngine
+from ..model import DocumentTagsResponse, SearchDocumentResult, SearchResponse
 
 router = APIRouter(tags=["search engine"])
 
@@ -62,15 +61,17 @@ def search_like(doc_id: int, num_results: int = 10) -> SearchResponse:
 
     return SearchResponse(results=docs)
 
+
 @router.get("/documents/{doc_id}")
 def get_document_details(doc_id: int):
     """Return document details by ID."""
     doc = engine.docstore.get(doc_id)
-    
+
     if not doc:
         raise HTTPException(status_code=404, detail="Document not found")
-    
+
     return doc
+
 
 @router.get("/documents/{doc_id}/ai_tags", response_model=DocumentTagsResponse)
 def get_document_ai_tags(doc_id: int):
@@ -78,14 +79,14 @@ def get_document_ai_tags(doc_id: int):
     doc = engine.docstore.get(doc_id)
     if not doc:
         raise HTTPException(status_code=404, detail="Document not found")
-    
+
     text_content = doc.get("description") or doc.get("text") or doc.get("content") or ""
-    
+
     if not text_content:
-         return DocumentTagsResponse(category="Desconhecido", tags=[])
+        return DocumentTagsResponse(category="Desconhecido", tags=[])
 
     tags_data = engine.generate_document_tags(text_content)
-    
+
     return DocumentTagsResponse(
         category=tags_data.get("category", "Geral"),
         tags=tags_data.get("tags", []),

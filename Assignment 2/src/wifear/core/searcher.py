@@ -217,7 +217,7 @@ class SearchEngine:
         return chunks
 
     def _split_into_paragraphs(self, text: str) -> list[str]:
-        paragraphs = [p.strip() for p in text.split("\n") if len(p.strip()) > 40]
+        paragraphs = [p.strip() for p in text.split(".") if len(p.strip()) > 150]
         return paragraphs
 
     def extract_best_snippet_neural(
@@ -230,6 +230,8 @@ class SearchEngine:
 
         full_text = f"{doc.get('title', '')}\n{doc.get('description', '')}"
         paragraphs = self._split_into_paragraphs(full_text)
+
+        print("[DEBUG] Extracting snippet from paragraphs:", paragraphs)
 
         if not paragraphs:
             return ""
@@ -354,9 +356,6 @@ class SearchEngine:
             return f"Error generating response with LLM: {e}"
 
     def generate_document_tags(self, doc_text: str) -> dict:
-        """
-        Use the LLM to generate semantic tags, categories and sentiment for the document.
-        """
         if not self.llm_model:
             return {}
 
@@ -376,18 +375,18 @@ class SearchEngine:
         try:
             response = self.llm_model.generate_content(prompt)
             text = response.text.strip()
-            
+
             # Manual parsing of the response to be robust
             result = {"category": "Geral", "tags": []}
-            
-            lines = text.split('\n')
+
+            lines = text.split("\n")
             for line in lines:
                 if line.startswith("CATEGORIA:"):
                     result["category"] = line.replace("CATEGORIA:", "").strip()
                 elif line.startswith("TAGS:"):
                     tags_raw = line.replace("TAGS:", "").strip()
-                    result["tags"] = [t.strip() for t in tags_raw.split(',')]
-            
+                    result["tags"] = [t.strip() for t in tags_raw.split(",")]
+
             return result
         except Exception as e:
             print(f"[ERROR] Gemini Tagging: {e}")
