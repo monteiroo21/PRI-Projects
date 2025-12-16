@@ -1,0 +1,316 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Document Details - Wifear</title>
+    <style>
+      * { margin: 0; padding: 0; box-sizing: border-box; }
+      body {
+        font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        min-height: 100vh;
+        color: #333;
+        padding-bottom: 2rem;
+      }
+      .container { max-width: 1200px; margin: 0 auto; padding: 2rem; }
+
+      .header {
+        text-align: center;
+        margin-bottom: 2rem;
+      }
+      .header h1 {
+        color: white;
+        font-size: 2.5rem;
+        font-weight: 700;
+        margin-bottom: 0.5rem;
+        text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.3);
+      }
+      .header p {
+        color: rgba(255, 255, 255, 0.9);
+        font-size: 1.1rem;
+      }
+      
+      .nav-bar {
+        margin-bottom: 2rem;
+      }
+      .back-btn {
+        display: inline-flex;
+        align-items: center;
+        text-decoration: none;
+        color: white;
+        font-weight: 600;
+        background: rgba(255, 255, 255, 0.2);
+        padding: 0.5rem 1rem;
+        border-radius: 8px;
+        transition: background 0.3s;
+      }
+      .back-btn:hover { background: rgba(255, 255, 255, 0.3); }
+
+      .content-grid {
+        display: grid;
+        grid-template-columns: 2fr 1fr;
+        gap: 2rem;
+      }
+
+      .doc-card {
+        background: white;
+        border-radius: 15px;
+        padding: 2.5rem;
+        box-shadow: 0 20px 40px rgba(0, 0, 0, 0.1);
+        animation: fadeIn 0.5s ease-in;
+      }
+
+      .doc-title {
+        font-size: 2rem;
+        color: #2d3748;
+        margin-bottom: 1rem;
+        padding-bottom: 1rem;
+        border-bottom: 2px solid #f0f0f0;
+      }
+
+      .doc-meta {
+        display: flex;
+        gap: 1rem;
+        margin-bottom: 2rem;
+        color: #718096;
+        font-size: 0.9rem;
+      }
+
+      .badge {
+        background-color: #edf2f7;
+        padding: 0.2rem 0.6rem;
+        border-radius: 4px;
+        color: #4a5568;
+        font-weight: 600;
+      }
+
+      .doc-body {
+        font-size: 1.1rem;
+        line-height: 1.8;
+        color: #4a5568;
+        white-space: pre-wrap;
+
+        overflow-wrap: break-word;
+        word-break: break-word; 
+        max-width: 100%;
+      }
+
+      .sidebar {
+        background: rgba(255, 255, 255, 0.9);
+        border-radius: 15px;
+        padding: 1.5rem;
+        height: fit-content;
+      }
+
+      .sidebar h3 {
+        color: #4a5568;
+        margin-bottom: 1rem;
+        font-size: 1.2rem;
+        border-bottom: 2px solid #e2e8f0;
+        padding-bottom: 0.5rem;
+      }
+
+      .similar-item {
+        display: block;
+        padding: 1rem;
+        background: white;
+        border-radius: 8px;
+        margin-bottom: 0.8rem;
+        text-decoration: none;
+        color: inherit;
+        transition: transform 0.2s, box-shadow 0.2s;
+        border: 1px solid #e2e8f0;
+      }
+
+      .similar-item:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 4px 6px rgba(0,0,0,0.05);
+        border-color: #667eea;
+      }
+
+      .similar-title {
+        font-weight: 600;
+        color: #2d3748;
+        margin-bottom: 0.3rem;
+        font-size: 0.95rem;
+      }
+      
+      .similar-score {
+        font-size: 0.8rem;
+        color: #667eea;
+      }
+
+      .loading, .error {
+        text-align: center;
+        padding: 2rem;
+        background: white;
+        border-radius: 10px;
+        color: #666;
+      }
+      .error { color: #e53e3e; background: #fff5f5; border: 1px solid #fed7d7; }
+
+      @media (max-width: 768px) {
+        .content-grid { grid-template-columns: 1fr; }
+      }
+      @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+      .badge-neural {
+        background-color: #e0e7ff;
+        color: #4338ca;
+        border: 1px solid #c7d2fe;
+      }
+
+      .badge-bm25 {
+        background-color: #f3f4f6;
+        color: #4b5563;
+        border: 1px solid #e5e7eb;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="container">
+      <div class="header">
+        <h1>🧠 Wifear</h1>
+        <p>Search Engine (Neural Rerank + RAG)</p>
+      </div>
+      <div class="nav-bar">
+        <a href="index.html" class="back-btn" onclick="if(history.length > 1 && document.referrer.includes(window.location.host)){ history.back(); return false; }">← Back to Search</a>
+      </div>
+
+      <div id="loading" class="loading">Loading document...</div>
+      <div id="error" class="error" style="display: none;"></div>
+
+      <div class="content-grid" id="contentArea" style="display: none;">
+        <!-- Main Area: Document -->
+        <div class="doc-card">
+          <h1 class="doc-title" id="docTitle"></h1>
+          <div class="doc-meta">
+            <span class="badge" id="docId"></span>
+            <span class="badge" id="docDate"></span>
+          </div>
+          <div class="doc-body" id="docContent"></div>
+        </div>
+
+        <!-- Sidebar: Similar Documents -->
+        <aside class="sidebar">
+          <h3>📑 Related Documents</h3>
+          <div id="similarDocsList">
+            <p style="font-size: 0.9rem; color: #718096;">Finding similar documents...</p>
+          </div>
+          
+          <div id="snippetContainer" style="display:none; margin-top: 2rem;">
+            <h3>🔍 Relevant Snippet</h3>
+            <blockquote id="snippetContent" style="background: #fdf6e3; padding: 1rem; border-left: 4px solid #b58900; color: #555; font-style: italic; font-size: 0.95rem; margin-top: 1rem;"></blockquote>
+          </div>
+        </aside>
+      </div>
+    </div>
+
+    <script>
+      const API_BASE_URL = "/api/v1";
+
+      document.addEventListener("DOMContentLoaded", async () => {
+        const params = new URLSearchParams(window.location.search);
+        const docId = params.get("id");
+
+        if (!docId) {
+          showError("No document ID provided.");
+          return;
+        }
+
+        // Display scores if available in URL
+        const neuralScore = params.get("score");
+        const bm25Score = params.get("bm25_score");
+        if (neuralScore && neuralScore !== 'N/A') {
+             addBadge(`⚡ Neural: ${neuralScore}`, 'badge-neural', 'Neural Relevance Score');
+        }
+        if (bm25Score && bm25Score !== 'N/A') {
+             addBadge(`📊 BM25: ${bm25Score}`, 'badge-bm25', 'Original BM25 Score');
+        }
+
+        const snippet = params.get("snippet");
+        if (snippet && snippet !== 'null' && snippet.trim() !== '') {
+            const snippetContainer = document.getElementById("snippetContainer");
+            const snippetContent = document.getElementById("snippetContent");
+            if (snippetContainer && snippetContent) {
+                snippetContent.textContent = snippet;
+                snippetContainer.style.display = "block";
+            }
+        }
+
+        try {
+          // 1. Load Main Document
+          const response = await fetch(`${API_BASE_URL}/documents/${docId}`);
+          
+          if (!response.ok) throw new Error("Document not found");
+          
+          const doc = await response.json();
+          renderDocument(doc);
+
+          // 2. Load Similar Documents (background)
+          loadSimilarDocs(docId);
+
+        } catch (error) {
+          showError(error.message);
+        }
+      });
+
+      function renderDocument(doc) {
+        document.getElementById("loading").style.display = "none";
+        document.getElementById("contentArea").style.display = "grid";
+
+        document.getElementById("docTitle").textContent = doc.title || "Untitled";
+        document.getElementById("docId").textContent = `ID: ${doc.id}`;
+        // Assuming the full text field is 'description' or 'text'
+        document.getElementById("docContent").textContent = doc.description || doc.text || doc.content || "No content available.";
+      }
+
+      async function loadSimilarDocs(docId) {
+        try {
+          const response = await fetch(`${API_BASE_URL}/search_like?doc_id=${docId}&num_results=5`);
+          if (!response.ok) return;
+
+          const data = await response.json();
+          const list = document.getElementById("similarDocsList");
+          
+          if (data.results && data.results.length > 0) {
+            list.innerHTML = data.results
+              .map(d => `
+                <a href="document.html?id=${d.id}" class="similar-item">
+                  <div class="similar-title">${escapeHtml(d.title)}</div>
+                  <div class="similar-score">Similarity: ${(d.score).toFixed(4)}</div>
+                </a>
+              `).join("");
+          } else {
+            list.innerHTML = "<p>No related documents found.</p>";
+          }
+        } catch (e) {
+          console.error("Error loading similar documents", e);
+        }
+      }
+
+      function showError(msg) {
+        document.getElementById("loading").style.display = "none";
+        const errDiv = document.getElementById("error");
+        errDiv.textContent = msg;
+        errDiv.style.display = "block";
+      }
+
+      function escapeHtml(text) {
+        if (!text) return "";
+        const div = document.createElement("div");
+        div.textContent = text;
+        return div.innerHTML;
+      }
+      
+      function addBadge(text, className, title) {
+          const metaDiv = document.querySelector('.doc-meta');
+          const span = document.createElement('span');
+          span.className = `badge ${className}`;
+          span.textContent = text;
+          if (title) span.title = title;
+          metaDiv.appendChild(span);
+      }
+    </script>
+  </body>
+</html>

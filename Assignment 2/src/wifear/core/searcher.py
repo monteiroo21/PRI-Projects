@@ -265,6 +265,9 @@ class SearchEngine:
         pair_doc_map = []  # maps pair index -> document index
 
         for doc_idx, doc in enumerate(candidates):
+            # Store initial BM25 score
+            doc["initial_score"] = doc["score"]
+
             title = doc.get("title", "")
             desc = doc.get("description", "")
             full_text = f"{title}. {desc}"
