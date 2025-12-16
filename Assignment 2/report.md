@@ -60,3 +60,86 @@ GOOGLE_API_KEY=your_api_key_here
     Launches the FastAPI application.
     *   **Neural Reranking** and **RAG** will be automatically enabled if the `GOOGLE_API_KEY` and the `sentence-transformers` models are loaded successfully.
     *   Access locally at: **[http://127.0.0.1:8000](http://127.0.0.1:8000)**
+
+
+---
+
+# 1. Neural Reranking
+
+To overcome the limitations of lexical search (BM25)—which struggles with synonyms, polysemy, and lack of semantic understanding—we implemented a **Neural Reranking** stage. This component acts as a refinement layer that re-scores the initial candidates retrieved by the inverted index based on their actual semantic relevance to the query.
+
+### 1.1 Model Choice: Cross-Encoder
+We utilized the **`unicamp-dl/mMiniLM-L6-v2-pt-v2`** model via the `sentence-transformers` library.
+
+*   **Architecture:** This is a **Cross-Encoder** model. Unlike Bi-Encoders (which compute cosine similarity between separate vector embeddings), a Cross-Encoder processes the query and the document **simultaneously** as a single input pair. This allows the model to perform deep self-attention between the query terms and document terms, resulting in significantly higher accuracy for ranking tasks.
+*   **Justification:** We selected this specific model because:
+    1.  It is **fine-tuned for Portuguese**, ensuring high performance on the PT-Wiki corpus.
+    2.  It is based on `mMiniLM-L6`, a distilled model with only 6 layers. This provides an optimal balance between **inference speed** (crucial for a real-time search engine) and **ranking precision**.
+
+### 1.2 Implementation Strategy
+The `neural_search` method in `searcher.py` implements the reranking pipeline as follows:
+
+1.  **Candidate Retrieval:** The system first executes a BM25 query to fetch a broad pool of candidates (default `candidates_k=50`).
+2.  **Handling Long Documents (Chunking):** Since Transformer models have a token limit (typically 512 tokens), we cannot pass entire Wikipedia articles at once. We implemented a sliding window strategy (`_split_into_token_chunks`) that breaks documents into chunks of 480 terms with an overlap of 64 terms.
+3.  **Pairwise Scoring:** We construct pairs of `[Query, Text Chunk]` and pass them to the Cross-Encoder.
+    ```python
+    scores = self.reranker.predict(pairs, batch_size=32)
+    ```
+4.  **Max-Score Aggregation:** To determine the final score of a document, we use a **Max-Pooling** strategy. The score of a document is equal to the score of its most relevant chunk. This ensures that if a specific section of a long article answers the query, the document is ranked highly, even if the rest of the text is unrelated.
+5.  **Dynamic Snippet Extraction:** As an additional enhancement, we reused the Cross-Encoder to generate semantic snippets. The system splits the document into paragraphs and scores them against the query. The paragraph with the highest semantic score is returned as the snippet, ensuring the user sees the most relevant context immediately.
+
+---
+
+Here is the fully consolidated section, integrating the implementation details, prompt engineering, and the technical justification (Token Limits and Rate Limits) into a single, cohesive narrative.
+
+***
+
+# 2. Answer Generation (RAG)
+
+The final component of our system transforms the search engine into a Question Answering (QA) system using **Retrieval-Augmented Generation (RAG)**. Instead of simply returning a list of links, the system synthesizes a natural language answer based on the retrieved content.
+
+### 2.1 Implementation Strategy: Context & Prompting
+
+To ensure high-quality responses, we implemented specific design choices regarding context window construction and prompt engineering.
+
+**A. Multi-Document Context (The "Top-5" Strategy)**
+A critical design choice in our `generate_answer` method was the context window size. While the assignment suggested using the Top-1 document, we implemented a **Multi-Document Context (Top-5)** strategy.
+*   **Rationale:** Relying solely on the Top-1 document introduces a "Single Point of Failure." If the highest-ranked document is semantically similar but lacks the specific fact requested, the LLM cannot answer. By feeding the **Top-5 reranked documents**, we provide the LLM with a broader knowledge base, allowing it to synthesize complementary information from multiple sources and handle complex queries where the answer might be split across different articles.
+
+**B. Prompt Engineering**
+We engineered a robust system prompt to ensure the generated answers are accurate, grounded, and linguistically correct. The prompt structure implemented in the code includes:
+1.  **Persona Definition:** *"És um assistente inteligente de recuperação de informação."*
+2.  **Strict Grounding:** *"A tua tarefa é sintetizar uma resposta... baseada APENAS nestes documentos."* This instruction is crucial to prevent "hallucinations" (inventing facts not present in the source).
+3.  **Language Constraint:** *"Responde em Português de Portugal."*
+4.  **Fallback Mechanism:** We explicitly instructed the model to fail gracefully: *"Se a resposta não estiver nos documentos, diz 'A informação recuperada não contém a resposta'."*
+
+### 2.2 Model Selection Analysis: Why Gemini 2.5 Flash?
+
+We integrated Google's **Gemini 2.5 Flash** model (`gemini-2.5-flash`) via the `google.generativeai` SDK. This decision was driven by a comparative analysis against the heavier "Pro" variants, focusing on **Token Capacity** and **Operational Constraints**.
+
+#### 2.2.1 Token Limits & Capacity
+A common misconception is that "Flash" (efficiency) models have smaller context windows than "Pro" (reasoning) models. However, our analysis of the technical specifications proves that **Gemini 2.5 Flash maintains parity with the most powerful models regarding Input Token limits.**
+
+The table below compares the selected model against alternatives:
+
+| Model Variant | **Input Token Limit** (Context Window) | **Output Token Limit** (Response Size) | **RAG Suitability** |
+| :--- | :--- | :--- | :--- |
+| **Gemini 2.5 Flash** | **1,048,576** | **65,536** | **Optimal.** Combines massive context with low latency. |
+| Gemini 3 Pro Preview | 1,048,576 | 65,536 | **Overkill.** Same context capacity but slower inference. |
+| Gemini 2.5 Pro | 1,048,576 | 65,536 | **Overkill.** Higher computational cost for the same input. |
+| Gemini 2.0 Flash | 1,048,576 | 8,192 | **Limited.** The lower output limit (8k) restricts long-form answers. |
+
+**Key Findings:**
+1.  **No Context Compromise:** The 1 Million token input limit allows us to feed the Top-5 (or even Top-50) documents without truncation.
+2.  **Output Sufficiency:** The 65k output limit ensures the model can generate extensive, detailed answers in Portuguese, unlike the 8k limit of the previous 2.0 Flash version.
+
+#### 2.2.2 Operational Constraints: Rate Limits & Availability
+Beyond capacity, a decisive factor was the **API Rate Limits** (Requests Per Minute - RPM). There is typically an inverse relationship between a model's "intelligence" and its allowed throughput.
+
+| Model Class | **Throughput (RPM)** | **System Impact** |
+| :--- | :--- | :--- |
+| **Gemini 2.5 Flash** | **High (e.g., ~15+ RPM)** | **High Availability.** Handles rapid, successive queries without crashing. |
+| Gemini 3 / 2.5 Pro | **Low (e.g., ~2 RPM)** | **Bottleneck.** Fast searching triggers `429 Too Many Requests` errors. |
+
+**Conclusion:**
+For a search engine, **availability is a quality metric**. Using a "Pro" model would force users to wait significantly longer for results and hit rate limits after just a few queries. **Gemini 2.5 Flash** offers the optimal balance: it possesses the **same context capacity** as the Pro models but delivers it with the **high throughput and low latency** required for a real-time user experience.
