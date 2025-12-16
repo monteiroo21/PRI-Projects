@@ -216,6 +216,42 @@ class SearchEngine:
 
         return chunks
 
+    def _split_into_paragraphs(self, text: str) -> list[str]:
+        paragraphs = [p.strip() for p in text.split("\n") if len(p.strip()) > 40]
+        return paragraphs
+
+    def extract_best_snippet_neural(
+        self,
+        query_text: str,
+        doc: dict,
+    ) -> str:
+        if not self.reranker:
+            return ""
+
+        full_text = f"{doc.get('title', '')}\n{doc.get('description', '')}"
+        paragraphs = self._split_into_paragraphs(full_text)
+
+        if not paragraphs:
+            return ""
+
+        pairs = []
+
+        for p in paragraphs:
+            p = self.tokenizer.tokenize(p)
+            paragraph = ""
+            for token in p:
+                paragraph += token + " "
+            pairs.append([query_text, paragraph.strip()])
+
+        scores = self.reranker.predict(
+            pairs,
+            batch_size=32,
+            show_progress_bar=False,
+        )
+
+        best_idx = int(max(range(len(scores)), key=lambda i: scores[i]))
+        return paragraphs[best_idx]
+
     def neural_search(self, query_text: str, top_k: int = 10, candidates_k: int = 50) -> list[dict]:
         if not self.reranker:
             print("[WARN] Neural Reranker not loaded. Falling back to BM25.")
@@ -228,9 +264,6 @@ class SearchEngine:
         pairs = []
         pair_doc_map = []  # maps pair index -> document index
 
-        doc_best_score: dict[int, float] = {}
-        doc_best_chunk: dict[int, str] = {}
-
         for doc_idx, doc in enumerate(candidates):
             title = doc.get("title", "")
             desc = doc.get("description", "")
@@ -240,7 +273,7 @@ class SearchEngine:
 
             for chunk in chunks:
                 pairs.append([query_text, chunk])
-                pair_doc_map.append((doc_idx, chunk))
+                pair_doc_map.append(doc_idx)
 
         if not pairs:
             return candidates[:top_k]
@@ -251,16 +284,20 @@ class SearchEngine:
             show_progress_bar=True,
         )
 
-        for score, (doc_idx, chunk_text) in zip(scores, pair_doc_map):
+        doc_scores: dict[int, float] = {}
+
+        for score, doc_idx in zip(scores, pair_doc_map):
             score = float(score)
+            if doc_idx not in doc_scores:
+                doc_scores[doc_idx] = score
+            else:
+                doc_scores[doc_idx] = max(doc_scores[doc_idx], score)
 
-            if doc_idx not in doc_best_score or score > doc_best_score[doc_idx]:
-                doc_best_score[doc_idx] = score
-                doc_best_chunk[doc_idx] = chunk_text
-
-        for doc_idx in doc_best_score:
-            candidates[doc_idx]["score"] = doc_best_score[doc_idx]
-            candidates[doc_idx]["snippet"] = doc_best_chunk[doc_idx]
+        for doc_idx, score in doc_scores.items():
+            candidates[doc_idx]["score"] = score
+            candidates[doc_idx]["snippet"] = self.extract_best_snippet_neural(
+                query_text, candidates[doc_idx]
+            )
 
         # Sort by reranked score
         candidates.sort(key=lambda x: x["score"], reverse=True)
@@ -268,8 +305,6 @@ class SearchEngine:
         return candidates[:top_k]
 
     def generate_answer(self, query_text: str, relevant_docs: list[dict]) -> str:
-        """Generates a natural language answer based on the top 5 documents retrieved."""
-
         if not self.llm_model:
             return "Error: Gemini API is not configured or LLM model is missing."
 
@@ -291,19 +326,19 @@ class SearchEngine:
 
         prompt = (
             "És um assistente inteligente de recuperação de informação. "
-            "O utilizador fez uma pergunta e abaixo estão os 5 documentos mais "
-            "relevantes encontrados no sistema.\n"
-            "A tua tarefa é sintetizar uma resposta completa e natural baseada "
-            + f"APENAS nestes documentos.\n\n"
+            "O utilizador fez uma pergunta e abaixo estão os 5 documentos mais relevantes "
+            + "encontrados no sistema.\n"
+            "A tua tarefa é sintetizar uma resposta completa e natural baseada APENAS "
+            + f"nestes documentos.\n\n"
             f"CONTEXTO (Documentos Recuperados):\n"
             f"{full_context}\n"
             f"---------------------------------------------------\n"
             f"PERGUNTA DO UTILIZADOR: {query_text}\n\n"
             f"INSTRUÇÕES:\n"
             f"- Responde em Português de Portugal.\n"
-            f"- Usa a informação de múltiplos documentos se necessário para criar "
-            f"uma resposta mais completa.\n"
-            f"- Se a resposta não estiver nos documentos, diz 'A informação recuperada "
+            f"- Usa a informação de múltiplos documentos se necessário para criar uma "
+            + "resposta mais completa.\n"
+            "- Se a resposta não estiver nos documentos, diz 'A informação recuperada "
             + "não contém a resposta'.\n"
             "- Não inventes factos que não estejam no contexto.\n\n"
             "RESPOSTA:"
@@ -356,7 +391,7 @@ if __name__ == "__main__":
     results_neural = engine.neural_search(query_text, top_k=5, candidates_k=50)
     for i, doc in enumerate(results_neural):
         print(f"  {i+1}. {doc['title']} (Neural Score: {doc['score']:.4f})")
-        print(f"     Snippet: {doc.get('snippet', '')}")
+        print(f"     Snippet: {doc.get('snippet', '')}\n")
 
     # Answer Generation (RAG)
     if results:
