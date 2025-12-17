@@ -200,7 +200,7 @@ This feature ensures that the user sees the exact passage that answers their que
 
 # 4. Further AI Enhancement B: AI-Powered Metadata (Auto-Tagging)
 
-As a second AI enhancement, we leveraged the **Zero-Shot capabilities** of the LLM (Gemini 2.5 Flash) to generate structured metadata from unstructured text on the fly.
+As a second AI enhancement, we leveraged the **Zero-Shot capabilities** of the LLM (Gemini 2.5 Flash Lite) to generate structured metadata from unstructured text on the fly.
 
 ### 4.1 Implementation Logic
 The `generate_document_tags` method analyzes the document content to produce categorization labels.
