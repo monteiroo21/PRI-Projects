@@ -57,7 +57,7 @@ class SearchEngine:
         if api_key:
             try:
                 genai.configure(api_key=api_key)
-                model_name = "gemini-2.0-flash-lite"
+                model_name = "gemini-2.5-flash-lite"
                 print(f"[INFO] Initialized Gemini using model: '{model_name}'")
                 self.llm_model = genai.GenerativeModel(model_name)
             except Exception as e:

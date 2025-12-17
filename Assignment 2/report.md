@@ -137,36 +137,45 @@ We engineered a robust system prompt to ensure the generated answers are accurat
 3.  **Language Constraint:** *"Responde em Português de Portugal."*
 4.  **Fallback Mechanism:** We explicitly instructed the model to fail gracefully: *"Se a resposta não estiver nos documentos, diz 'A informação recuperada não contém a resposta'."*
 
-### 2.2 Model Selection Analysis: Why Gemini 2.5 Flash?
+### 2.2 Model Selection Analysis: Why Gemini 2.5 Flash **Lite**?
 
-We integrated Google's **Gemini 2.5 Flash** model (`gemini-2.5-flash`) via the `google.generativeai` SDK. This decision was driven by a comparative analysis against the heavier "Pro" variants, focusing on **Token Capacity** and **Operational Constraints**.
+We integrated Google's **Gemini 2.5 Flash Lite** model (`gemini-2.5-flash-lite`) via the `google.generativeai` SDK. This decision resulted from a comprehensive analysis comparing Capacity, Rate Limits, and Latency against the standard "Flash" and the heavier "Pro" variants.
 
-#### 2.2.1 Token Limits & Capacity
-A common misconception is that "Flash" (efficiency) models have smaller context windows than "Pro" (reasoning) models. However, our analysis of the technical specifications proves that **Gemini 2.5 Flash maintains parity with the most powerful models regarding Input Token limits.**
+#### 2.2.1 Token Limits & Capacity: Parity with Pro Models
+A common misconception is that "Lite" models significantly reduce the context window size compared to "Pro" models. However, our technical analysis confirms that **Gemini 2.5 Flash Lite maintains parity with the most powerful models regarding Input Token limits.**
 
-The table below compares the selected model against alternatives:
-
-| Model Variant | **Input Token Limit** (Context Window) | **Output Token Limit** (Response Size) | **RAG Suitability** |
+| Model Variant | **Input Token Limit** (Context Window) | **Output Token Limit** | **RAG Suitability** |
 | :--- | :--- | :--- | :--- |
-| **Gemini 2.5 Flash** | **1,048,576** | **65,536** | **Optimal.** Combines massive context with low latency. |
-| Gemini 3 Pro Preview | 1,048,576 | 65,536 | **Overkill.** Same context capacity but slower inference. |
-| Gemini 2.5 Pro | 1,048,576 | 65,536 | **Overkill.** Higher computational cost for the same input. |
-| Gemini 2.0 Flash | 1,048,576 | 8,192 | **Limited.** The lower output limit (8k) restricts long-form answers. |
+| **Gemini 2.5 Flash Lite** | **1,048,576** | **65,536** | **Optimal.** Combines massive context with extreme speed. |
+| Gemini 2.5 / 3 Pro | 1,048,576 | 65,536 | **Overkill.** Same context capacity but significantly higher cost/latency. |
+| Gemini 2.0 Flash (Legacy) | 1,048,576 | 8,192 | **Limited.** Lower output limit restricts detailed answers. |
 
-**Key Findings:**
-1.  **No Context Compromise:** The 1 Million token input limit allows us to feed the Top-5 (or even Top-50) documents without truncation.
-2.  **Output Sufficiency:** The 65k output limit ensures the model can generate extensive, detailed answers in Portuguese, unlike the 8k limit of the previous 2.0 Flash version.
+**Key Finding:** The "Lite" designation refers to parameter count and cost, **not context capacity**. With a 1 Million token window, the Lite model can easily process our "Top-5" (or even Top-50) documents without truncation, matching the capabilities of the Pro versions but with greater efficiency.
 
-#### 2.2.2 Operational Constraints: Rate Limits & Availability
-Beyond capacity, a decisive factor was the **API Rate Limits** (Requests Per Minute - RPM). There is typically an inverse relationship between a model's "intelligence" and its allowed throughput.
+#### 2.2.2 Operational Constraints (RPM)
+A decisive factor for a search engine's usability is the API Rate Limits (Requests Per Minute - RPM). As indicated by the official usage metrics (refer to Figure X), the Lite version provides a distinct throughput advantage.
 
-| Model Class | **Throughput (RPM)** | **System Impact** |
+| Model Variant | **RPM Limit** (Requests Per Minute) | **System Impact** |
 | :--- | :--- | :--- |
-| **Gemini 2.5 Flash** | **High (e.g., ~15+ RPM)** | **High Availability.** Handles rapid, successive queries without crashing. |
-| Gemini 3 / 2.5 Pro | **Low (e.g., ~2 RPM)** | **Bottleneck.** Fast searching triggers `429 Too Many Requests` errors. |
+| **Gemini 2.5 Flash Lite** | **10 RPM** | **High Availability.** Doubles the capacity for concurrent queries. |
+| Gemini 2.5 Flash | 5 RPM | **Moderate.** Risk of `429 Too Many Requests` errors under load. |
+| Pro Variants | ~2-5 RPM | **Bottleneck.** Unsuitable for rapid search iterations. |
+
+As evidenced by the console data, **Gemini 2.5 Flash Lite** offers **double the RPM capacity (10 vs 5)** of the standard Flash model, making it the most robust choice for handling multiple consecutive user queries.
+
+#### 2.2.3 Latency and Performance Benchmarks
+Beyond capacity and limits, we conducted internal benchmarks to measure the user's wait time (Latency). Speed is critical for search engine UX.
+
+*   **Gemini 2.5 Flash (Standard):** Average response time of approximately **25 seconds**.
+*   **Gemini 2.5 Flash Lite:** Average response time of approximately **13 seconds**.
+
+The **Lite version is nearly 2x faster** in generating the final answer. Waiting 25 seconds for a summary disrupts the user flow, whereas the 13-second benchmark of the Lite version falls within a much more acceptable range for real-time information retrieval.
+
+#### 2.2.4 Quality Comparison & Conclusion
+Finally, we analyzed the semantic quality of the outputs. Our testing revealed that for the specific task of RAG—summarizing facts provided in a clear context window—the responses generated by the **Lite** model were qualitatively indistinguishable from those of the standard **Flash** or even **Pro** models.
 
 **Conclusion:**
-For a search engine, **availability is a quality metric**. Using a "Pro" model would force users to wait significantly longer for results and hit rate limits after just a few queries. **Gemini 2.5 Flash** offers the optimal balance: it possesses the **same context capacity** as the Pro models but delivers it with the **high throughput and low latency** required for a real-time user experience.
+Since `gemini-2.5-flash-lite` delivers the **same context capacity (1M tokens)** and **comparable response quality**, while offering **half the latency (13s vs 25s)** and **double the throughput (10 RPM vs 5 RPM)**, it is unequivocally the optimal choice for our system.
 
 ---
 
