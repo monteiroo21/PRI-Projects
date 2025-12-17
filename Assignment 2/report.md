@@ -13,7 +13,7 @@ The architecture has been upgraded with the following **AI-driven components**:
     Instead of displaying the first few lines of a document, the system now uses the Neural Reranker to analyze specific paragraphs within the retrieved documents. It identifies and extracts the single most relevant text chunk to display as a snippet, ensuring the user sees the answer immediately in the search results.
 
 3.  **Answer Generation (RAG)**
-    We implemented a **Retrieval-Augmented Generation (RAG)** system using Google's **Gemini 2.5 Flash** model.
+    We implemented a **Retrieval-Augmented Generation (RAG)** system using Google's **Gemini 2.5 Flash Lite** model.
     *   **Design Choice (Context Window):** Although the assignment suggested using the Top-1 document, we chose to inject the **Top-5 reranked documents** into the LLM context. This design decision mitigates the "Single Point of Failure" risk (where the top document is relevant but lacks the specific answer) and allows the model to synthesize complementary information from multiple sources, resulting in a richer and more robust answer.
 
 4.  **AI-Powered Metadata (Tagging)**
