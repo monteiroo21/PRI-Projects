@@ -88,11 +88,35 @@ The `neural_search` method in `searcher.py` implements the reranking pipeline as
 4.  **Max-Score Aggregation:** To determine the final score of a document, we use a **Max-Pooling** strategy. The score of a document is equal to the score of its most relevant chunk. This ensures that if a specific section of a long article answers the query, the document is ranked highly, even if the rest of the text is unrelated.
 5.  **Dynamic Snippet Extraction:** As an additional enhancement, we reused the Cross-Encoder to generate semantic snippets. The system splits the document into paragraphs and scores them against the query. The paragraph with the highest semantic score is returned as the snippet, ensuring the user sees the most relevant context immediately.
 
+### 1.3 Evaluated Models
+
+The following models were evaluated under the same pipeline and execution conditions:
+
+- `cross-encoder/ms-marco-MiniLM-L-4-v2`
+- `cross-encoder/ms-marco-MiniLM-L-6-v2`
+- `cross-encoder/ms-marco-MiniLM-L-12-v2`
+- `cross-encoder/stsb-distilroberta-base`
+- `cross-encoder/mmarco-mMiniLMv2-L12-H384-v1`
+- `unicamp-dl/mMiniLM-L6-v2-pt-v2`
+
+### 1.4 Evaluation Criteria
+
+Models were compared not only based on the average execution time per query, but also on the reranking quality. This evaluation was based, not only on the contents of the retrieved documents, but also on the quality and on the capacity of the LLM to return an answer, based on the reranked documents, provenient from these models.
+
+
+### 1.5 Execution Time
+
+The table below reports the **average execution time per query**, considering only the reranking stage (cross-encoder) and a fixed number of candidates per query.
+
+| Model | Query A | Query B | Query C |
+|------|------------------------|-----------|---------|
+| ms-marco MiniLM L-4 | 4 s | 4 s | 4 s |
+| ms-marco MiniLM L-6 | 6 s | 6 s | 6 s |
+| ms-marco MiniLM L-12 | 6 s | 6 s | 6 s |
+| STSB DistilRoBERTa | 19 s | 18 s | 19 s |
+| mMARCO mMiniLM L-12 | 12 s | 12 s | 12 s |
+| **unicamp mMiniLM L-6 (PT)** | **6 s** | **6 s** | **6 s** |
 ---
-
-Here is the fully consolidated section, integrating the implementation details, prompt engineering, and the technical justification (Token Limits and Rate Limits) into a single, cohesive narrative.
-
-***
 
 # 2. Answer Generation (RAG)
 

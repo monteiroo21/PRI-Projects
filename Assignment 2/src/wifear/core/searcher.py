@@ -9,6 +9,7 @@ from functools import lru_cache
 from pathlib import Path
 
 import google.generativeai as genai
+import nltk
 from dotenv import load_dotenv
 from sentence_transformers import CrossEncoder
 
@@ -43,6 +44,9 @@ class SearchEngine:
         self.k1 = k1
         self.b = b
 
+        print("[INFO] Loading NLTK resources...")
+        nltk.download("punkt_tab", quiet=True)
+
         self.reranker = None
         if use_neural:
             print("[INFO] Loading Neural Reranker...")
@@ -53,7 +57,7 @@ class SearchEngine:
         if api_key:
             try:
                 genai.configure(api_key=api_key)
-                model_name = "gemini-2.5-flash"
+                model_name = "gemini-2.0-flash-lite"
                 print(f"[INFO] Initialized Gemini using model: '{model_name}'")
                 self.llm_model = genai.GenerativeModel(model_name)
             except Exception as e:
@@ -211,39 +215,33 @@ class SearchEngine:
             chunk_text = " ".join(chunk_terms)
             chunks.append(chunk_text)
             start += max_terms - overlap
-        print(f"[DEBUG] Split text into {len(chunks)} chunks.")
-        print(f"[DEBUG] Chunks: {chunks}")
 
         return chunks
 
     def _split_into_paragraphs(self, text: str) -> list[str]:
-        paragraphs = [p.strip() for p in text.split(".") if len(p.strip()) > 150]
-        return paragraphs
+        # Uses the Punkt algorithm to find sentence boundaries
+        sentences = nltk.sent_tokenize(text, language="portuguese")
 
-    def extract_best_snippet_neural(
-        self,
-        query_text: str,
-        doc: dict,
-    ) -> str:
+        # Create sliding windows (2 sentences at a time) for the reranker
+        chunks = []
+        for i in range(len(sentences)):
+            chunk = " ".join(sentences[i : i + 2])
+            if len(chunk.strip()) > 40:
+                chunks.append(chunk)
+        return chunks
+
+    def extract_best_snippet_neural(self, query_text: str, doc: dict) -> str:
         if not self.reranker:
             return ""
 
-        full_text = f"{doc.get('title', '')}\n{doc.get('description', '')}"
-        paragraphs = self._split_into_paragraphs(full_text)
+        full_text = f"{doc.get('title', '')}. {doc.get('description', '')}"
 
-        print("[DEBUG] Extracting snippet from paragraphs:", paragraphs)
+        chunks = self._split_into_paragraphs(full_text)
 
-        if not paragraphs:
-            return ""
+        if not chunks:
+            return doc.get("description", "")[:200]  # Fallback
 
-        pairs = []
-
-        for p in paragraphs:
-            p = self.tokenizer.tokenize(p)
-            paragraph = ""
-            for token in p:
-                paragraph += token + " "
-            pairs.append([query_text, paragraph.strip()])
+        pairs = [[query_text, chunk] for chunk in chunks]
 
         scores = self.reranker.predict(
             pairs,
@@ -252,7 +250,7 @@ class SearchEngine:
         )
 
         best_idx = int(max(range(len(scores)), key=lambda i: scores[i]))
-        return paragraphs[best_idx]
+        return chunks[best_idx]
 
     def neural_search(self, query_text: str, top_k: int = 10, candidates_k: int = 50) -> list[dict]:
         if not self.reranker:
